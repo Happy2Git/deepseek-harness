@@ -85,6 +85,8 @@ function makeProps(): {
   workspaceStatus: ReturnType<typeof vi.fn>
   showFileDiff: ReturnType<typeof vi.fn>
   gitStatusFor: ReturnType<typeof vi.fn>
+  readInjectedDocs: ReturnType<typeof vi.fn>
+  bumpDocsStream: () => void
 } {
   const instance = createPanelStore().create()
   const current = 's1' as SessionId
@@ -99,6 +101,23 @@ function makeProps(): {
     jobsBySession: {},
     currentAddress: undefined,
   } as SessionListState
+  // The docs-stream stub: a pushable snapshot the bound hook reads; bumping it
+  // simulates the session stream advancing (a new reference, as the runtime
+  // republishes per event batch).
+  let streamValue = { sessionId: current, snapshot: {} as never }
+  const streamListeners = new Set<() => void>()
+  const docsStream = {
+    getSnapshot: () => streamValue,
+    subscribe: (fn: () => void) => {
+      streamListeners.add(fn)
+      return () => { streamListeners.delete(fn) }
+    },
+  }
+  const bumpDocsStream = (): void => {
+    streamValue = { sessionId: current, snapshot: {} as never }
+    for (const fn of [...streamListeners]) fn()
+  }
+  const readInjectedDocs = vi.fn((): ContextDoc[] => DOCS)
   const listDirectory = vi.fn<(path?: string, signal?: AbortSignal) => Promise<DirectoryListing>>(async () => LISTING)
   const readText = vi.fn(async (path: string): Promise<DirectoryRead> => {
     if (path.endsWith('.bin')) throw new Error('not a text file')
@@ -115,6 +134,7 @@ function makeProps(): {
     useStore: hookOf(instance.store),
     actions: instance.actions,
     renderSlot: () => null,
+    useDocsStream: hookOf(docsStream),
     listDirectory,
     readText,
     openPath: vi.fn(async () => {}),
@@ -123,12 +143,15 @@ function makeProps(): {
     workspaceStatus,
     showFileDiff,
     gitStatusFor,
-    readInjectedDocs: vi.fn((): ContextDoc[] => DOCS),
+    readInjectedDocs,
     hasMoreDocs: vi.fn((): boolean => true),
     loadOlderDocs: vi.fn(async () => {}),
     sessionCwd: () => '/proj',
   } as PanelRootProps
-  return { props, listDirectory, readText, gitGraph, gitShowCommit, workspaceStatus, showFileDiff, gitStatusFor }
+  return {
+    props, listDirectory, readText, gitGraph, gitShowCommit, workspaceStatus, showFileDiff, gitStatusFor,
+    readInjectedDocs, bumpDocsStream,
+  }
 }
 
 afterEach(() => {
@@ -219,6 +242,20 @@ describe('PanelRoot', () => {
     const callsBefore = reader.mock.calls.length
     fireEvent.click(screen.getByText('刷新'))
     expect(reader.mock.calls.length).toBeGreaterThan(callsBefore)
+  })
+
+  it('re-projects the documents when the session stream advances, without a manual refresh', () => {
+    const { props, readInjectedDocs, bumpDocsStream } = makeProps()
+    render(<PanelRoot {...props} />)
+    expect(document.body.textContent).toContain('AGENTS.md')
+    // The agent injected a new document; the stream republishes its snapshot.
+    readInjectedDocs.mockReturnValue([
+      ...DOCS,
+      { seq: 3, time: 3_000, role: 'inject', label: '新技能', form: null, text: '新注入的上下文。', active: true },
+    ])
+    act(() => { bumpDocsStream() })
+    expect(document.body.textContent).toContain('新技能')
+    expect(document.body.textContent).toContain('3 篇')
   })
 
   it('badges file instructions vs runtime context and pages older documents', async () => {

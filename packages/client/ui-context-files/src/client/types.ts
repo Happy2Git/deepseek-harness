@@ -5,6 +5,8 @@
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { DirectoryListing, DirectoryRead } from '@deepseek-ai/dsh-host-directory-picker'
 import type { GitCommitDetail, GitFileDiff, GitGraphPage, GitStatusFile, GitWorkspaceStatus } from '@deepseek-ai/dsh-host-git'
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import type { DocsStream } from './docs-stream.ts'
 
 /** One injected-context document projected from a logged non-user message. */
 export interface ContextDoc {
@@ -56,4 +58,13 @@ export interface InjectedFace {
   loadOlderDocs: (sessionId: SessionId) => Promise<void>
   /** The session's workspace directory, absent when the host row carries none. */
   sessionCwd: (sessionId: SessionId) => string | undefined
+  /**
+   * Registrant-private observable sources, bound by the renderer to
+   * `use<Name>` selector hooks. `docsStream` moves whenever the current
+   * session's conversation stream advances, driving the context tab's
+   * automatic re-projection.
+   */
+  hooks: {
+    docsStream: ObservableSnapshot<DocsStream>
+  }
 }
