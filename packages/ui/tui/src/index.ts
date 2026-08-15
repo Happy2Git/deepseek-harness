@@ -86,38 +86,57 @@ function contentText(blocks: readonly ContentBlock[]): string {
   return out
 }
 
-/** Map one session event to a transcript line, or `undefined` when it has no visible text. */
-function eventLine(event: SessionEvent): string | undefined {
-  switch (event.type) {
-    case 'user/message': {
-      if (event.data.source.kind !== 'user') return undefined
-      const text = contentText(event.data.content).trim()
-      return text === '' ? undefined : `> ${text}`
-    }
-    case 'assistant/message': {
-      const text = contentText(event.data.message.content).trim()
-      return text === '' ? undefined : text
-    }
-    case 'tool/call':
-      return `◇ ${event.data.name}`
-    case 'turn/end':
-      if (event.data.reason.kind === 'error') return `✗ ${event.data.reason.error.message}`
-      return undefined
-    default:
-      return undefined
-  }
-}
+/** Truncate one tool result for the collapsed tool card. */
+const TOOL_RESULT_PREVIEW_CHARS = 240
 
 /**
- * Fold the append-only session log into one transcript string. Recomputing
- * from the whole log is quadratic on long resumed sessions; the projection
- * cache replaces this fold in a later phase.
+ * Fold the append-only session log into one transcript string. A tool call
+ * pairs with the result that follows it so the card shows both sides.
+ * Recomputing from the whole log is quadratic on long resumed sessions; the
+ * projection cache replaces this fold in a later phase.
  */
 function foldTranscript(events: readonly SessionEvent[]): string {
   const lines: string[] = []
+  let lastToolCall: string | undefined
   for (const event of events) {
-    const line = eventLine(event)
-    if (line !== undefined) lines.push(line)
+    switch (event.type) {
+      case 'user/message': {
+        if (event.data.source.kind === 'user') {
+          const text = contentText(event.data.content).trim()
+          if (text !== '') lines.push(`> ${text}`)
+        }
+        break
+      }
+      case 'assistant/message': {
+        const text = contentText(event.data.message.content).trim()
+        if (text !== '') lines.push(text)
+        break
+      }
+      case 'tool/call': {
+        lastToolCall = event.data.name
+        lines.push(`◇ ${event.data.name}`)
+        break
+      }
+      case 'tool/result': {
+        const result = contentText(event.data.message.content).trim()
+        const preview = result.length > TOOL_RESULT_PREVIEW_CHARS
+          ? `${result.slice(0, TOOL_RESULT_PREVIEW_CHARS)}…`
+          : result
+        const label = lastToolCall === undefined ? '' : ` ${lastToolCall}`
+        if (event.data.error === undefined) {
+          lines.push(`✓${label}${preview === '' ? '' : `: ${preview}`}`)
+        } else {
+          lines.push(`✗${label} (${event.data.error.code})${preview === '' ? '' : `: ${preview}`}`)
+        }
+        break
+      }
+      case 'turn/end': {
+        if (event.data.reason.kind === 'error') lines.push(`✗ ${event.data.reason.error.message}`)
+        break
+      }
+      default:
+        break
+    }
   }
   return lines.join('\n')
 }
