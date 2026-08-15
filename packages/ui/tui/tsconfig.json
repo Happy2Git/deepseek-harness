@@ -21,6 +21,9 @@
       "path": "../../core/agent-default-model"
     },
     {
+      "path": "../../boot/cmdline"
+    },
+    {
       "path": "../../core/session"
     },
     {
