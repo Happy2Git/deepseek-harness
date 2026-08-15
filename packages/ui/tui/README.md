@@ -29,5 +29,5 @@ This adapter adds no model-visible content of its own: terminal presentation, co
 ## Known Limitations and Deferred Work
 
 - The transcript renders incrementally (append-origin), but a resumed cold session still folds its whole history once; moving to the projection cache would bound that replay too.
-- Markdown formatting and reasoning blocks are not yet rendered; tool cards show a collapsed call/result preview rather than structured diff/terminal/search/read/web intents.
-- The terminal-local `/details` selector is not yet implemented; `/model` (list or select) and `/clear` (reset the visible transcript) are available, and `/plan`, `/compact`, and `/goal` arrive through their own command plugins.
+- Markdown formatting is not yet rendered; reasoning blocks show with a `·` prefix (toggle via `/details`), and tool cards show a collapsed call/result preview rather than structured diff/terminal/search/read/web intents.
+- `/model` (list or select), `/clear` (reset the visible transcript), and `/details` (toggle reasoning) are available; `/plan`, `/compact`, and `/goal` arrive through their own command plugins.
