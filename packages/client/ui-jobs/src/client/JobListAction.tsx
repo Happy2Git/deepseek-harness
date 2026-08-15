@@ -157,9 +157,18 @@ export function JobListAction({ sessionId, useSessions, t }: JobListActionProps)
           setOpen(current => !current)
         }}
       >
-        {liveCount > 0 ? <StateDot state="ongoing" className={css.triggerDot} /> : null}
-        <span className={css.count}>{countLabel}</span>
-        <IconChevronDownOutline14 className={open ? css.triggerOpen : undefined} />
+        <span className={css.triggerRow}>
+          {liveCount > 0 ? <StateDot state="ongoing" className={css.triggerDot} /> : null}
+          <span className={css.count}>{countLabel}</span>
+          <IconChevronDownOutline14 className={open ? css.triggerOpen : undefined} />
+        </span>
+        {/* One status dot per job, in list order: the strip answers each
+            task's state without opening the list. Ten dots fill a row; more
+            wrap to the next. Decorative — the accessible name stays the
+            count label, and each status word lives in the list rows. */}
+        <span className={css.dotStrip} aria-hidden="true">
+          {rows.map(job => <StateDot key={job.id} state={dotState(job.status)} size={6} />)}
+        </span>
       </button>
       {open
         ? (
