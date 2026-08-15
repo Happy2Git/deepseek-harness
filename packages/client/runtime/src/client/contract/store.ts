@@ -123,6 +123,11 @@ export function createSnapshotStore<T>(
  * draft becomes {0:'h',1:'e',...}) — not fixable via merge/deserialize options
  * because the corruption happens before serialization. Storage failures
  * (quota, private mode) only disable persistence, never break the store.
+ *
+ * Rehydration is a shallow merge over the fresh init state, so a persisted
+ * shape from an older schema keeps the new fields' defaults instead of
+ * leaving them undefined (an undefined field crashes the first reader, as
+ * the panel store's `contextFilter` did after it gained the search field).
  */
 function attachPersistence<T>(api: StoreApi<T>, name: string): void {
   // Non-browser runs (node e2e booting the client tree) have no localStorage:
@@ -132,7 +137,14 @@ function attachPersistence<T>(api: StoreApi<T>, name: string): void {
   try {
     const raw = localStorage.getItem(name)
     if (raw !== null) {
-      api.setState(devFreeze(JSON.parse(raw) as T), true)
+      const parsed = JSON.parse(raw) as unknown
+      // Object states merge over the fresh init (a stale schema keeps new
+      // defaults); primitive states rehydrate whole as before.
+      if (typeof parsed === 'object' && parsed !== null) {
+        api.setState(devFreeze({ ...api.getState(), ...parsed }), true)
+      } else {
+        api.setState(devFreeze(parsed as T), true)
+      }
     }
   } catch (error) {
     console.error(`snapshot store '${name}' rehydration failed:`, error)
