@@ -47,12 +47,12 @@ export interface DirectoryListing {
    * inclusive; every crumb is a jump target (crumb `hidden` is always false).
    */
   crumbs: DirectoryEntry[]
-  /** Direct children, name-sorted: directories (symlinks to directories included) and files. */
+  /** Direct children: directories first (symlinks to directories included), then files — each group name-sorted. */
   entries: DirectoryEntry[]
   /**
    * True when the backend cut `entries` at its complete-result bound: the
    * level has more children than reported, and the missing rows are the
-   * name-sorted tail (hidden rows count toward the bound).
+   * directories-first name-sorted tail (hidden rows count toward the bound).
    */
   truncated: boolean
 }

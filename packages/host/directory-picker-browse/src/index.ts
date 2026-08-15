@@ -64,29 +64,39 @@ export interface ListingCandidate {
 }
 
 /**
- * Insert a streamed candidate into the name-sorted bounded window, evicting
- * the name-largest candidate when the window exceeds `keep`. Memory over an
- * arbitrarily large level therefore stays O(keep) regardless of how many
+ * Order two listing candidates: directories first, then files — each group
+ * name-ascending. A symlink's group is its target's kind, probed by the
+ * caller before the insert.
+ */
+function compareCandidates(a: ListingCandidate, b: ListingCandidate): number {
+  if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
+  return a.name.localeCompare(b.name)
+}
+
+/**
+ * Insert a streamed candidate into the directories-first bounded window,
+ * evicting the largest candidate when the window exceeds `keep`. Memory over
+ * an arbitrarily large level therefore stays O(keep) regardless of how many
  * children the directory holds.
- * @param window - the name-ascending window, mutated in place.
+ * @param window - the directories-first name-ascending window, mutated in place.
  * @param candidate - the streamed candidate to place.
  * @param keep - the window bound.
  * @returns true when an eviction happened (the level has candidates beyond the window).
  */
 export function boundedInsert(window: ListingCandidate[], candidate: ListingCandidate, keep: number): boolean {
-  // Full window, name at or beyond the tail: one comparison rejects, so an
-  // oversized level costs O(1) per candidate past the head instead of a
+  // Full window, candidate at or beyond the tail: one comparison rejects, so
+  // an oversized level costs O(1) per candidate past the head instead of a
   // window scan (100k children against a 1,001 window must not approach
   // 10^8 comparisons).
   // oxlint-disable-next-line typescript/no-non-null-assertion -- a full window (length === keep >= 1) has a tail
-  if (window.length === keep && candidate.name.localeCompare(window[window.length - 1]!.name) >= 0) return true
+  if (window.length === keep && compareCandidates(candidate, window[window.length - 1]!) >= 0) return true
   // Binary insertion keeps a retained candidate at O(log keep) comparisons.
   let lo = 0
   let hi = window.length
   while (lo < hi) {
     const mid = (lo + hi) >>> 1
     // oxlint-disable-next-line typescript/no-non-null-assertion -- bounded by the loop condition
-    if (candidate.name.localeCompare(window[mid]!.name) < 0) hi = mid
+    if (compareCandidates(candidate, window[mid]!) < 0) hi = mid
     else lo = mid + 1
   }
   window.splice(lo, 0, candidate)
@@ -231,9 +241,9 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
       throw new DirectoryPickerError('directory-unreadable', path, `cannot list "${path}": not a fully qualified path`)
     }
     const target = resolve(path ?? home)
-    // Stream the level (opendir, one dirent at a time) into a name-sorted
+    // Stream the level (opendir, one dirent at a time) into a directories-first
     // window of maxEntries + 1 candidates: memory stays bounded no matter how
-    // many children the directory holds, the window keeps the name-sorted
+    // many children the directory holds, the window keeps the directories-first
     // head, and the +1 slot lets an in-window extra row prove the cut. A
     // window candidate that turns out unrowable (broken symlink) is not
     // backfilled from beyond the window — an eviction already marks the
@@ -263,9 +273,23 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
           const dirent = await raceAbort(level.read(), signal)
           if (dirent === null) break
           // Rows a browser could act on contend for the window; dirent says
-          // "directory" or "file" outright, a symlink needs the later stat probe.
+          // "directory" or "file" outright, a symlink needs the stat probe.
           if (!dirent.isDirectory() && !dirent.isFile() && !dirent.isSymbolicLink()) continue
-          const candidate = { name: dirent.name, isDirectory: dirent.isDirectory(), isSymbolicLink: dirent.isSymbolicLink() }
+          // A symlink's sort group is its target's kind: probe it during the
+          // stream (racing the caller like every other filesystem await), so
+          // a symlinked directory sorts with the directories.
+          let isDirectory = dirent.isDirectory()
+          if (dirent.isSymbolicLink()) {
+            try {
+              const targetStat = await raceAbort(stat(join(target, dirent.name)), signal)
+              isDirectory = targetStat.isDirectory()
+            } catch {
+              // Broken or cyclic symlink: keep the dirent kind for the sort;
+              // entryRow drops the row later.
+              if (signal?.aborted) throw asError(signal.reason)
+            }
+          }
+          const candidate = { name: dirent.name, isDirectory, isSymbolicLink: dirent.isSymbolicLink() }
           if (boundedInsert(window, candidate, keep)) evicted = true
         }
       } finally {

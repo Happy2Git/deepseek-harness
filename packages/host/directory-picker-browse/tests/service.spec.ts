@@ -45,7 +45,7 @@ afterAll(async () => {
 })
 
 describe('BrowseDirectoryPicker', () => {
-  it('lists directories and files, flags hidden rows, follows symlinks, skips broken links, sorts by name', async () => {
+  it('lists directories and files, flags hidden rows, follows symlinks, skips broken links, sorts directories first', async () => {
     const listing = await capability.list(root)
     expect(listing.path).toBe(root)
     expect(listing.home).toBe(homedir())
@@ -53,11 +53,12 @@ describe('BrowseDirectoryPicker', () => {
     const names = listing.entries.map(entry => entry.name)
     // file-link (a symlink to notes.txt) only exists where the OS permits
     // file symlinks; where it does, it joins the level as a file row.
+    // Directories (including the symlinked 'linked') come first, then files.
     if (names.includes('file-link')) {
-      expect(names).toEqual(['.hidden-dir', 'file-link', 'linked', 'notes.txt', 'projects'])
+      expect(names).toEqual(['.hidden-dir', 'linked', 'projects', 'file-link', 'notes.txt'])
       expect(byName('file-link')).toMatchObject({ hidden: false, kind: 'file' })
     } else {
-      expect(names).toEqual(['.hidden-dir', 'linked', 'notes.txt', 'projects'])
+      expect(names).toEqual(['.hidden-dir', 'linked', 'projects', 'notes.txt'])
     }
     expect(byName('.hidden-dir')).toMatchObject({ hidden: true, kind: 'directory' })
     expect(byName('linked')).toMatchObject({ hidden: false, kind: 'directory' })
@@ -178,19 +179,29 @@ describe('BrowseDirectoryPicker', () => {
     }
   })
 
-  it('boundedInsert keeps the window name-sorted and bounded, reporting evictions', () => {
-    const candidate = (name: string): ListingCandidate => ({ name, isDirectory: true, isSymbolicLink: false })
+  it('boundedInsert keeps the window directories-first and bounded, reporting evictions', () => {
+    const dir = (name: string): ListingCandidate => ({ name, isDirectory: true, isSymbolicLink: false })
+    const file = (name: string): ListingCandidate => ({ name, isDirectory: false, isSymbolicLink: false })
     const window: ListingCandidate[] = []
-    expect(boundedInsert(window, candidate('m'), 2)).toBe(false)
-    expect(boundedInsert(window, candidate('z'), 2)).toBe(false)
+    expect(boundedInsert(window, dir('m'), 2)).toBe(false)
+    expect(boundedInsert(window, dir('z'), 2)).toBe(false)
     // A smaller name lands in place and pushes the current largest out.
-    expect(boundedInsert(window, candidate('a'), 2)).toBe(true)
+    expect(boundedInsert(window, dir('a'), 2)).toBe(true)
     expect(window.map(entry => entry.name)).toEqual(['a', 'm'])
     // A name at or beyond the full window's tail rejects on one comparison.
-    expect(boundedInsert(window, candidate('t'), 2)).toBe(true)
+    expect(boundedInsert(window, dir('t'), 2)).toBe(true)
     expect(window.map(entry => entry.name)).toEqual(['a', 'm'])
-    expect(boundedInsert(window, candidate('m'), 2)).toBe(true)
+    expect(boundedInsert(window, dir('m'), 2)).toBe(true)
     expect(window.map(entry => entry.name)).toEqual(['a', 'm'])
+    // Directories sort before files regardless of name; each group stays
+    // name-ascending, and the oversized file candidate is evicted.
+    const mixed: ListingCandidate[] = []
+    expect(boundedInsert(mixed, file('a.txt'), 3)).toBe(false)
+    expect(boundedInsert(mixed, dir('z-dir'), 3)).toBe(false)
+    expect(boundedInsert(mixed, dir('a-dir'), 3)).toBe(false)
+    expect(mixed.map(entry => entry.name)).toEqual(['a-dir', 'z-dir', 'a.txt'])
+    expect(boundedInsert(mixed, file('b.txt'), 3)).toBe(true)
+    expect(mixed.map(entry => entry.name)).toEqual(['a-dir', 'z-dir', 'a.txt'])
   })
 
   it('reports the ancestry as jump-target crumbs ending at the listed directory', async () => {
