@@ -35,3 +35,4 @@
         task: !!js ctx.headlessStartup.task
         sessionId: !!js ctx.headlessStartup.sessionId
         model: !!js ctx.headlessStartup.model
+        mode: !!js ctx.headlessStartup.mode

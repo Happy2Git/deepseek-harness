@@ -20,6 +20,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 // and the cmdline Context merge for the appExit host value.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-cmdline'
+import type {} from '@deepseek-ai/dsh-permission-presets'
 
 /** Stable Cordis plugin name. */
 export const name = 'headless-runner'
@@ -35,13 +36,24 @@ export interface Config {
   sessionId?: string
   /** Model id overriding the default selection for this run. */
   model?: string
+  /** Permission mode: `read-only`, `workspace-write`, `danger-full-access`, or `confirm`. */
+  mode?: string
 }
 
 export const Config: z<Config> = z.object({
   task: z.string().required(),
   sessionId: z.string(),
   model: z.string(),
+  mode: z.string(),
 })
+
+/** `--mode` name to permission-preset key; `confirm` maps to the ask-approval preset. */
+const MODE_PRESET: Record<string, string> = {
+  'read-only': 'read-only',
+  'workspace-write': 'workspace-write',
+  'danger-full-access': 'danger-full-access',
+  confirm: 'workspace-write',
+}
 
 /** Outcome of one owned run interval. */
 interface RunOutcome {
@@ -136,6 +148,14 @@ async function run(ctx: Context, config: Config, io: HeadlessIo): Promise<void> 
       agentOptions,
       setup,
     }))
+  if (config.mode !== undefined) {
+    const permissionPresets = ctx.get('permissionPresets')
+    const preset = MODE_PRESET[config.mode]
+    if (permissionPresets === undefined || preset === undefined) {
+      throw new Error(`headless: unknown --mode ${JSON.stringify(config.mode)}`)
+    }
+    permissionPresets.set(agent.session, preset)
+  }
   await agent.whenIdle()
   const firstSeq = agent.session.seq
   agent.followup(createUserMessage({
