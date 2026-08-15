@@ -65,6 +65,23 @@ export class SessionFormatUnsupportedError extends Error {
 }
 
 /**
+ * The backend holds no stored artifact for the requested session identity —
+ * distinct from {@link SessionPersistenceCorruptionError} (the log is damaged)
+ * and from {@link SessionFormatUnsupportedError} (the log is intact but too
+ * new). Callers that create-or-resume catch only this to fall back to a
+ * create, instead of swallowing unrelated persistence failures.
+ */
+export class SessionNotFoundError extends Error {
+  /**
+   * @param id - the absent session identity.
+   */
+  constructor(id: SessionId) {
+    super(`session "${id}" not found`)
+    this.name = 'SessionNotFoundError'
+  }
+}
+
+/**
  * Direction-aware refusal text for a stored session whose format version this
  * build does not read. Shared by the coordinator's load-time check and by
  * backends that must refuse BEFORE decoding version-dependent structure (a
@@ -853,7 +870,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
         throw error
       }
       signal?.throwIfAborted()
-      if (suffix === undefined) throw new Error(`session "${id}" not found`)
+      if (suffix === undefined) throw new SessionNotFoundError(id)
       this.assertStoredId(id, suffix.meta)
       this.assertVersion(suffix.meta)
       if (suffix.events.some(needsLegacyPrefix)) {
@@ -877,7 +894,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     signal?.throwIfAborted()
     const stored = await this.backend.loadStored(id, signal)
     signal?.throwIfAborted()
-    if (stored === undefined) throw new Error(`session "${id}" not found`)
+    if (stored === undefined) throw new SessionNotFoundError(id)
     this.assertStoredId(id, stored.meta)
     this.assertVersion(stored.meta)
     const events = snapshotStoredEvents(stored.events, id)
@@ -891,7 +908,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   /** Read, repair in memory, validate, and freeze one cold source once. */
   private async prepareCore(id: SessionId): Promise<PreparedSessionSource<TornMarker>> {
     const stored = await this.backend.loadStored(id)
-    if (stored === undefined) throw new Error(`session "${id}" not found`)
+    if (stored === undefined) throw new SessionNotFoundError(id)
     try {
       const { meta, events, revision, tornMarker } = stored
       this.assertStoredId(id, meta)
