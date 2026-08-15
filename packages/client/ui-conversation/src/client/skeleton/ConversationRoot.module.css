@@ -375,3 +375,10 @@
     transition: none;
   }
 }
+
+@media (max-width: 720px) {
+  .root {
+    padding-right: 0;
+    transition: none;
+  }
+}
