@@ -9,6 +9,12 @@
   height: 100%;
   min-width: 0;
   background: var(--dsw-alias-bg-base);
+  /* The context-and-files panel overlays the column's right edge; it publishes
+   * its occupied width on the document root and this padding keeps the whole
+   * conversation clear of it (the panel starts where the column's content
+   * ends). The transition rides the same curve as the panel's own width. */
+  padding-right: var(--dsh-context-panel-width, 0px);
+  transition: padding-right var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 
   /* Shared width axis for the whole column: one content width W
      (--dsh-chat-content-width) for the transcript, the dock cards
@@ -362,4 +368,10 @@
    mounted but invisible so no wrong layout flashes before the phase lands. */
 .root[data-phase='settling'] .composerSeat {
   visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root {
+    transition: none;
+  }
 }

@@ -5,7 +5,7 @@ import { useSyncExternalStore } from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { SessionLogDownloadController } from '../src/client/controller.ts'
 import { SessionLogDownloadHeaderAction } from '../src/client/HeaderAction.tsx'
-import type { SessionLogDownloadDialogProps } from '../src/client/Dialog.tsx'
+import type { SessionLogDownloadFrameworkProps } from '../src/client/Dialog.tsx'
 import { en } from '../src/client/locales.ts'
 
 const SID = 'session-export-header' as SessionId
@@ -19,18 +19,23 @@ function bindSessionExport(controller: SessionLogDownloadController) {
   }
 }
 
+/** The panel is root-scoped, so the component reads the current session via `useSessions`. */
+function useSessions<T>(selector: (s: { current: SessionId | undefined }) => T): T {
+  return selector({ current: SID })
+}
+
 function bench() {
   const controller = new SessionLogDownloadController(async () => new Response('zip'), vi.fn())
   const request = vi.fn((sessionId: SessionId) => controller.download(sessionId))
   const dismiss = vi.fn((sessionId: SessionId) => { controller.dismiss(sessionId) })
   const useSessionLogDownload = bindSessionExport(controller)
   const props = {
-    sessionId: SID,
+    useSessions,
     useSessionLogDownload,
     request,
     dismiss,
     t: (key: keyof typeof en): string => en[key],
-  } as unknown as SessionLogDownloadDialogProps
+  } as unknown as SessionLogDownloadFrameworkProps
   const view = render(<SessionLogDownloadHeaderAction {...props} />)
   return { controller, request, view }
 }
@@ -54,12 +59,12 @@ describe('Session export Header action', () => {
     const controller = new SessionLogDownloadController(() => pending, vi.fn())
     const useSessionLogDownload = bindSessionExport(controller)
     b.view.rerender(<SessionLogDownloadHeaderAction {...({
-      sessionId: SID,
+      useSessions,
       useSessionLogDownload,
       request: (sessionId: SessionId) => controller.download(sessionId),
       dismiss: (sessionId: SessionId) => { controller.dismiss(sessionId) },
       t: (key: keyof typeof en): string => en[key],
-    } as unknown as SessionLogDownloadDialogProps)} />)
+    } as unknown as SessionLogDownloadFrameworkProps)} />)
 
     const download = controller.download(SID)
     const button = b.view.getByRole('button', { name: 'Session log' })
