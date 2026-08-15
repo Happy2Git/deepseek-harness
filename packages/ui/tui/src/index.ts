@@ -31,12 +31,14 @@ import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolResult, ToolRuntime } from '@deepseek-ai/dsh-tools'
 import type { AskUserQuestionAnswer, AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
-import { formatMarkdown } from './markdown.ts'
+import { escapeControls, formatMarkdown } from './markdown.ts'
 import { renderCall, renderResult } from './tool-cards.ts'
 // Empty type imports carry the loader Context merges for the settlement await,
-// the agent-default-model service, the token meter, and the approval waterfall.
+// the agent-default-model service, the token meter, the approval waterfall, and
+// the cmdline Context merge for the launcher-provided appExit host value.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
+import type {} from '@deepseek-ai/dsh-cmdline'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import type {} from '@deepseek-ai/dsh-user-approval'
@@ -139,15 +141,15 @@ function foldEventLines(
       }
       callMap.set(event.data.callId, { name: event.data.name, args })
       const view = tools?.get(event.data.name)?.presentCall?.(args)
-      return [view === undefined ? `◇ ${event.data.name}` : renderCall(view)]
+      return [view === undefined ? `◇ ${escapeControls(event.data.name)}` : renderCall(view)]
     }
     case 'tool/result': {
       const [resultBlock] = event.data.message.content
       const call = callMap.get(event.data.message.source.callId)
-      const marker = event.data.error === undefined ? '✓' : `✗ (${event.data.error.code})`
-      const label = call === undefined ? '' : ` ${call.name}`
+      const marker = event.data.error === undefined ? '✓' : `✗ (${escapeControls(event.data.error.code)})`
+      const label = call === undefined ? '' : ` ${escapeControls(call.name)}`
       const lines: string[] = [marker + label]
-      if (call !== undefined && resultBlock !== undefined) {
+      if (call !== undefined) {
         const view = tools?.get(call.name)?.presentResult?.(call.args, {
           content: resultBlock.content,
           isError: resultBlock.isError === true,
@@ -156,14 +158,14 @@ function foldEventLines(
         if (view !== undefined) lines.push(...renderResult(view))
       }
       if (lines.length === 1) {
-        const raw = contentText(resultBlock?.content ?? []).trim()
+        const raw = contentText(resultBlock.content).trim()
         const preview = raw.length > TOOL_RESULT_PREVIEW_CHARS ? `${raw.slice(0, TOOL_RESULT_PREVIEW_CHARS)}…` : raw
-        if (preview !== '') lines.push(preview)
+        if (preview !== '') lines.push(escapeControls(preview))
       }
       return lines
     }
     case 'turn/end':
-      return event.data.reason.kind === 'error' ? [`✗ ${event.data.reason.error.message}`] : []
+      return event.data.reason.kind === 'error' ? [`✗ ${escapeControls(event.data.reason.error.message)}`] : []
     default:
       return []
   }
@@ -199,7 +201,9 @@ export function apply(ctx: Context): () => void {
 
   // Component invalidation does not schedule a redraw on its own; every
   // programmatic text change below re-requests the render explicitly.
-  const setStatus = (text: string): void => { status.setText(text); tui.requestRender() }
+  // Every status line is terminal output: sanitize it here so prompts, tool
+  // names/reasons, and error text cannot inject terminal sequences.
+  const setStatus = (text: string): void => { status.setText(escapeControls(text)); tui.requestRender() }
   const setTranscriptText = (text: string): void => {
     transcript.setText(text)
     tui.requestRender()
@@ -232,10 +236,10 @@ export function apply(ctx: Context): () => void {
   }
   const settlePrompt = (text: string): void => {
     if (activePrompt === undefined) return
-    const resolve = activePrompt.resolve
+    const pending = activePrompt
     activePrompt = undefined
     setStatus('')
-    resolve(text)
+    pending.resolve(text)
     drainPromptQueue()
   }
 
@@ -400,7 +404,9 @@ export function apply(ctx: Context): () => void {
         recordInput: false,
         handler: () => {
           transcriptLines.length = 0
-          lastFoldedSeq = agent.session.seq
+          // seq is the NEXT event's number (log length); folding it must not
+          // skip the first event appended after the clear.
+          lastFoldedSeq = agent.session.seq - 1
           callMap.clear()
           render()
           return { kind: 'success' }

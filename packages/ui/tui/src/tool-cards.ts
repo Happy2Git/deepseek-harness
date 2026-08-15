@@ -31,11 +31,12 @@ function renderDiff(diffs: readonly FileDiff[]): string[] {
   for (const diff of diffs) {
     const patch = createTwoFilesPatch(diff.path, diff.path, diff.oldText ?? '', diff.newText)
     for (const line of patch.split('\n')) {
-      if (line.startsWith('+') && !line.startsWith('+++')) lines.push(GREEN + line + RESET)
-      else if (line.startsWith('-') && !line.startsWith('---')) lines.push(RED + line + RESET)
-      else if (line.startsWith('@@')) lines.push(DIM + line + RESET)
-      else if (line.startsWith('---') || line.startsWith('+++')) lines.push(DIM + line + RESET)
-      else lines.push(line)
+      const safe = escapeControls(line)
+      if (line.startsWith('+') && !line.startsWith('+++')) lines.push(GREEN + safe + RESET)
+      else if (line.startsWith('-') && !line.startsWith('---')) lines.push(RED + safe + RESET)
+      else if (line.startsWith('@@')) lines.push(DIM + safe + RESET)
+      else if (line.startsWith('---') || line.startsWith('+++')) lines.push(DIM + safe + RESET)
+      else lines.push(safe)
     }
   }
   return lines
@@ -57,7 +58,7 @@ export function renderResult(view: ToolResultView): string[] {
       const lines: string[] = []
       if (view.output !== undefined) lines.push(...view.output.split('\n').map(escapeControls))
       if (view.exitCode !== undefined) lines.push(`[exit ${view.exitCode}]`)
-      else if (view.signal !== undefined) lines.push(`[signal ${view.signal}]`)
+      else if (view.signal !== undefined) lines.push(`[signal ${escapeControls(view.signal)}]`)
       return lines
     }
     case 'diff':
