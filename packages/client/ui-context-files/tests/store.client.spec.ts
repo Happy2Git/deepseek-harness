@@ -19,6 +19,7 @@ describe('createPanelStore', () => {
       expandedDirs: [],
       centerFile: null,
       centerDocSeq: null,
+      centerDiff: null,
       collapsed: false,
       width: 280,
     })

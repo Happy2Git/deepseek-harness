@@ -131,3 +131,45 @@ describe('output bounding', () => {
     await lossyFiber.dispose()
   })
 })
+
+describe('LocalGit.workspaceStatus', () => {
+  it('reports the branch, upstream, and ahead count', async () => {
+    const bare = join(repo, '..', 'bare.git')
+    await mkdir(bare)
+    git(bare, ['init', '--bare', '-b', 'main'])
+    git(repo, ['remote', 'add', 'origin', bare])
+    git(repo, ['push', '-u', 'origin', 'main'])
+    git(repo, ['commit', '--allow-empty', '-m', 'ahead commit'])
+    const status = await local.workspaceStatus(repo)
+    expect(status.branch).toBe('main')
+    expect(status.upstream).toBe('origin/main')
+    expect(status.ahead).toBe(1)
+    expect(status.behind).toBe(0)
+  })
+
+  it('lists uncommitted files with statuses and line counts, name-sorted', async () => {
+    await writeFile(join(repo, 'README.md'), 'changed again\n')
+    await writeFile(join(repo, 'new.txt'), 'one\ntwo\n')
+    git(repo, ['add', 'new.txt'])
+    await writeFile(join(repo, 'untracked.txt'), 'x\n')
+    const status = await local.workspaceStatus(repo)
+    expect(status.files).toEqual([
+      { path: 'README.md', status: 'modified', additions: 1, deletions: 1 },
+      { path: 'new.txt', status: 'added', additions: 2, deletions: 0 },
+      { path: 'untracked.txt', status: 'untracked', additions: 0, deletions: 0 },
+    ])
+    expect(status.truncated).toBe(false)
+  })
+})
+
+describe('LocalGit.showFileDiff', () => {
+  it('returns the unified diff of one file in one commit', async () => {
+    const page = await local.graph(repo, { count: 3 })
+    const root = page.entries[2]!
+    const diff = await local.showFileDiff(repo, root.hash, 'README.md')
+    expect(diff.path).toBe('README.md')
+    expect(diff.diff).toContain('diff --git')
+    expect(diff.diff).toContain('+first')
+    expect(diff.truncated).toBe(false)
+  })
+})
