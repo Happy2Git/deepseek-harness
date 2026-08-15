@@ -20,6 +20,8 @@ export interface ContextDoc {
   form: string | null
   /** The complete rendered markdown text. */
   text: string
+  /** True while the document is still in the model's live window (not shadowed by a compaction checkpoint). */
+  active: boolean
 }
 
 /**

@@ -41,3 +41,18 @@
 - text: Details
 - button "Close details"
 - text: Click a tool row in the message flow to view its details
+- region "上下文与文件面板":
+  - button "收起面板" [expanded]:
+    - img
+  - button "Session log":
+    - text: Session log
+    - img
+  - navigation:
+    - tablist "面板视图":
+      - tab "上下文" [selected]
+      - tab "文件夹"
+      - tab "Git"
+  - textbox "搜索注入文档":
+    - /placeholder: 搜索注入文档…
+  - button "刷新"
+  - paragraph: 当前日志窗口内尚未注入任何上下文文档。
