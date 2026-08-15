@@ -93,6 +93,7 @@ const TOOL_RESULT_PREVIEW_CHARS = 240
 function foldEventLines(
   event: SessionEvent,
   lastToolCall: string | undefined,
+  showReasoning: boolean,
 ): { lines: string[]; lastToolCall: string | undefined } {
   switch (event.type) {
     case 'user/message': {
@@ -103,8 +104,19 @@ function foldEventLines(
       return { lines: [], lastToolCall }
     }
     case 'assistant/message': {
-      const text = contentText(event.data.message.content).trim()
-      return text === '' ? { lines: [], lastToolCall } : { lines: [text], lastToolCall }
+      const lines: string[] = []
+      for (const block of event.data.message.content) {
+        if (block.type === 'reasoning') {
+          if (showReasoning) {
+            const text = block.text.trim()
+            if (text !== '') lines.push(`  · ${text}`)
+          }
+        } else if (block.type === 'text') {
+          const text = block.text.trim()
+          if (text !== '') lines.push(text)
+        }
+      }
+      return { lines, lastToolCall }
     }
     case 'tool/call':
       return { lines: [`◇ ${event.data.name}`], lastToolCall: event.data.name }
@@ -291,12 +303,13 @@ export function apply(ctx: Context): () => void {
     const transcriptLines: string[] = []
     let lastFoldedSeq = -1
     let lastToolCall: string | undefined
+    let showReasoning = true
 
     const render = (): void => {
       let changed = false
       for (const event of agent.session.events) {
         if (event.seq <= lastFoldedSeq) continue
-        const folded = foldEventLines(event, lastToolCall)
+        const folded = foldEventLines(event, lastToolCall, showReasoning)
         lastToolCall = folded.lastToolCall
         transcriptLines.push(...folded.lines)
         lastFoldedSeq = event.seq
@@ -363,6 +376,20 @@ export function apply(ctx: Context): () => void {
           lastToolCall = undefined
           render()
           return { kind: 'success' }
+        },
+      })
+      commands.register({
+        name: 'details',
+        description: 'toggle reasoning display',
+        recordInput: false,
+        handler: () => {
+          showReasoning = !showReasoning
+          // Toggling changes every assistant fold, so rebuild from scratch.
+          transcriptLines.length = 0
+          lastFoldedSeq = -1
+          lastToolCall = undefined
+          render()
+          return { kind: 'success', text: `reasoning ${showReasoning ? 'on' : 'off'}` }
         },
       })
       commands.register({
