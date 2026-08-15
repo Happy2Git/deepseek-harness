@@ -29,6 +29,8 @@ export interface HeadlessStartupValues {
   model?: string
   /** Permission mode: `read-only`, `workspace-write`, `danger-full-access`, or `confirm`. */
   mode?: string
+  /** Stream machine-readable NDJSON events and read approvals from stdin. */
+  jsonl?: boolean
 }
 
 /**
@@ -44,6 +46,7 @@ function headlessCommand(): Command {
     .option('--session-id <id>', 'create-or-resume the session with this exact id')
     .option('--model <model>', 'override the model for this run')
     .option('--mode <mode>', 'permission mode: read-only, workspace-write, danger-full-access, or confirm')
+    .option('--jsonl', 'stream NDJSON events and read approvals from stdin')
     .addHelpText('after', `
 Examples:
   dsh --profile headless "run the tests"                 answer one task and exit
@@ -64,12 +67,13 @@ export function apply(ctx: Context): void {
   program.action(() => {
     const task = program.args.join(' ')
     if (task.trim() === '') program.error('error: a task is required, for example: dsh --profile headless "run the tests"')
-    const options = program.opts<{ sessionId?: string; model?: string; mode?: string }>()
+    const options = program.opts<{ sessionId?: string; model?: string; mode?: string; jsonl?: boolean }>()
     const values: HeadlessStartupValues = {
       task,
       ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
       ...(options.model === undefined ? {} : { model: options.model }),
       ...(options.mode === undefined ? {} : { mode: options.mode }),
+      ...(options.jsonl !== true ? {} : { jsonl: true }),
     }
     ctx.provide(HEADLESS_STARTUP_SERVICE, values)
   })

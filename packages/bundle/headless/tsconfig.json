@@ -33,6 +33,9 @@
       "path": "../../interaction/permission-presets"
     },
     {
+      "path": "../../interaction/user-approval"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     },
     {
