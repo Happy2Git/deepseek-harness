@@ -63,6 +63,7 @@ let graphMock: ReturnType<typeof vi.fn>
 let showCommitMock: ReturnType<typeof vi.fn>
 let workspaceMock: ReturnType<typeof vi.fn>
 let showDiffMock: ReturnType<typeof vi.fn>
+let statusMock: ReturnType<typeof vi.fn>
 let fiber: { dispose: () => Promise<void> }
 
 beforeEach(async () => {
@@ -92,6 +93,7 @@ beforeEach(async () => {
   showDiffMock = vi.spyOn(local, 'showFileDiff').mockResolvedValue({
     path: 'README.md', diff: '', truncated: false,
   })
+  statusMock = vi.spyOn(local, 'directoryStatus').mockResolvedValue([])
 })
 
 afterEach(async () => {
@@ -107,7 +109,7 @@ function routeAt(path: string): WebRoute {
 
 describe('route registration', () => {
   it('registers the four exact git routes', () => {
-    expect(routes.map(route => route.path).sort()).toEqual(['/git/graph', '/git/show-commit', '/git/show-diff', '/git/workspace'])
+    expect(routes.map(route => route.path).sort()).toEqual(['/git/graph', '/git/show-commit', '/git/show-diff', '/git/status', '/git/workspace'])
     for (const route of routes) expect(route.kind).toBe('exact')
   })
 })
@@ -282,5 +284,22 @@ describe('/git/show-diff', () => {
     await routeAt('/git/show-diff').handler(makeRequest(JSON.stringify({ cwd: 'repo', hash: 'abc', path: 'x' })), res)
     expect(responseStatus(res)).toBe(400)
     expect(showDiffMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('/git/status', () => {
+  it('delegates the directory to directoryStatus', async () => {
+    const res = makeResponse()
+    await routeAt('/git/status').handler(makeRequest(JSON.stringify({ dir: '/repo/sub' })), res)
+    expect(statusMock).toHaveBeenCalledWith('/repo/sub', expect.any(AbortSignal))
+    expect(responseStatus(res)).toBe(200)
+    expect(responseBody(res)).toEqual({ files: [] })
+  })
+
+  it('answers 400 for a relative dir', async () => {
+    const res = makeResponse()
+    await routeAt('/git/status').handler(makeRequest(JSON.stringify({ dir: 'repo' })), res)
+    expect(responseStatus(res)).toBe(400)
+    expect(statusMock).not.toHaveBeenCalled()
   })
 })
