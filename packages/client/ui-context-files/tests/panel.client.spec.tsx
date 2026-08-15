@@ -110,7 +110,12 @@ function makeProps(): {
   return { props, listDirectory, readText, gitGraph, gitShowCommit }
 }
 
-afterEach(() => { cleanup() })
+afterEach(() => {
+  cleanup()
+  // The panel store persists whole-state to localStorage; clear it so one
+  // test's tab/width/expansion cannot rehydrate into the next.
+  localStorage.clear()
+})
 
 // jsdom ships no matchMedia; the panel reads it once for the narrow-viewport
 // auto-collapse. Stub a wide viewport (no auto-collapse) with inert listeners.
