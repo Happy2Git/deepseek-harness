@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import type { Mock } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import type { DirectoryListing, DirectoryPickerBrowseCapability, DirectoryRead } from '@deepseek-ai/dsh-host-directory-picker'
+import type { DirectoryImageRead, DirectoryListing, DirectoryPickerBrowseCapability, DirectoryRead } from '@deepseek-ai/dsh-host-directory-picker'
 
 const { runNativeCommandMock } = vi.hoisted(() => ({ runNativeCommandMock: vi.fn(async () => undefined) }))
 vi.mock('@deepseek-ai/dsh-native-command', () => ({ runNativeCommand: runNativeCommandMock }))
@@ -67,6 +67,7 @@ let capability: DirectoryPickerBrowseCapability
 let currentCapability: { kind: string }
 let listMock: Mock<(path?: string, signal?: AbortSignal) => Promise<DirectoryListing>>
 let readTextMock: Mock<(path: string, signal?: AbortSignal) => Promise<DirectoryRead>>
+let readImageMock: Mock<(path: string, signal?: AbortSignal) => Promise<DirectoryImageRead>>
 let fiber: { dispose: () => Promise<void> }
 
 beforeAll(async () => {
@@ -75,10 +76,14 @@ beforeAll(async () => {
     path: path ?? '/home/u', home: '/home/u', crumbs: [], entries: [], truncated: false,
   }))
   readTextMock = vi.fn<(path: string, signal?: AbortSignal) => Promise<DirectoryRead>>(async path => ({ path, text: 'hello', truncated: false }))
+  readImageMock = vi.fn<(path: string, signal?: AbortSignal) => Promise<DirectoryImageRead>>(async path => ({
+    path, data: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  }))
   capability = {
     kind: 'browse',
     list: listMock,
     readText: readTextMock,
+    readImage: readImageMock,
     createDirectory: vi.fn(async () => '/x'),
   }
   currentCapability = capability
@@ -103,6 +108,7 @@ afterEach(() => {
   runNativeCommandMock.mockClear()
   listMock.mockClear()
   readTextMock.mockClear()
+  readImageMock.mockClear()
 })
 
 afterAll(async () => {
@@ -118,7 +124,7 @@ function routeAt(path: string): WebRoute {
 
 describe('route registration', () => {
   it('registers the three exact directory routes', () => {
-    expect(routes.map(route => route.path).sort()).toEqual(['/dir/list', '/dir/open-path', '/dir/read-text'])
+    expect(routes.map(route => route.path).sort()).toEqual(['/dir/list', '/dir/open-path', '/dir/read-image', '/dir/read-text'])
     for (const route of routes) expect(route.kind).toBe('exact')
   })
 })
@@ -247,5 +253,55 @@ describe('/dir/open-path', () => {
     await routeAt('/dir/open-path').handler(makeRequest(undefined), res)
     expect(responseStatus(res)).toBe(400)
     expect(runNativeCommandMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('/dir/read-image', () => {
+  it('reads the requested file, sniffs the format, and answers canonical base64', async () => {
+    const res = makeResponse()
+    await routeAt('/dir/read-image').handler(makeRequest(JSON.stringify({ path: '/tmp/a.png' })), res)
+    expect(readImageMock).toHaveBeenCalledWith('/tmp/a.png', expect.any(AbortSignal))
+    expect(responseStatus(res)).toBe(200)
+    const body = responseBody(res) as { path: string; mediaType: string; data: string }
+    expect(body).toMatchObject({ path: '/tmp/a.png', mediaType: 'image/png' })
+    expect(Buffer.from(body.data, 'base64').toString('hex')).toBe('89504e470d0a1a0a')
+  })
+
+  it('sniffs each supported raster header', async () => {
+    const cases: [Uint8Array, string][] = [
+      [new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), 'image/jpeg'],
+      [new Uint8Array([...Buffer.from('RIFF'), 0, 0, 0, 0, ...Buffer.from('WEBP')]), 'image/webp'],
+      [new Uint8Array([...Buffer.from('GIF89a')]), 'image/gif'],
+    ]
+    for (const [data, mediaType] of cases) {
+      readImageMock.mockResolvedValueOnce({ path: '/tmp/x', data })
+      const res = makeResponse()
+      await routeAt('/dir/read-image').handler(makeRequest(JSON.stringify({ path: '/tmp/x' })), res)
+      expect(responseStatus(res)).toBe(200)
+      expect(responseBody(res)).toMatchObject({ mediaType })
+    }
+  })
+
+  it('answers 415 for content that is not a supported image', async () => {
+    readImageMock.mockResolvedValueOnce({ path: '/tmp/notes.md', data: new Uint8Array([0x68, 0x69]) })
+    const res = makeResponse()
+    await routeAt('/dir/read-image').handler(makeRequest(JSON.stringify({ path: '/tmp/notes.md' })), res)
+    expect(responseStatus(res)).toBe(415)
+    expect(responseBody(res)).toEqual({ error: { message: 'not a supported image format' } })
+  })
+
+  it('enforces the composed attachment per-file limit with 413', async () => {
+    ctx.provide('attachments', { imageLimits: { maxImageBytes: 2 } })
+    const res = makeResponse()
+    await routeAt('/dir/read-image').handler(makeRequest(JSON.stringify({ path: '/tmp/big.png' })), res)
+    expect(responseStatus(res)).toBe(413)
+    expect(responseBody(res)).toEqual({ error: { message: 'image exceeds the configured per-file limit' } })
+  })
+
+  it('answers 400 for a missing path', async () => {
+    const res = makeResponse()
+    await routeAt('/dir/read-image').handler(makeRequest(JSON.stringify({})), res)
+    expect(responseStatus(res)).toBe(400)
+    expect(readImageMock).not.toHaveBeenCalled()
   })
 })

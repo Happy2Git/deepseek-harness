@@ -202,6 +202,8 @@ function mount(
           addImages={() => null}
           removeImage={() => {}}
           draftImages={() => []}
+          readImageByPath={() => Promise.resolve({ ok: false, status: 500 })}
+          sessionImageInput={() => Promise.resolve(false)}
           resolveSubmitMode={() => 'queue'}
           toggleCommandMenu={vi.fn()}
           useNotices={bindSnapshotSelector(wiring.notices)}

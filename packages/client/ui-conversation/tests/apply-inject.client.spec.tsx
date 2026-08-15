@@ -47,7 +47,11 @@ function sessionFakeFor() {
 
 async function bench() {
   const runtime = await SlotTestRuntime.create()
-  runtime.provide('connection', { api: { settings: {} }, isLoopback: false })
+  const imageInput = vi.fn(() => Promise.resolve({ result: { ok: true, value: true } }))
+  runtime.provide('connection', {
+    api: { settings: {}, sessions: { imageInput } },
+    isLoopback: false,
+  })
   // The plugin injects both; these specs exercise no settings path.
   runtime.provide('remote', { $on: () => () => {} })
   runtime.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
@@ -124,7 +128,7 @@ async function bench() {
   return {
     runtime, feature, slots: runtime.slots, entryOf,
     conversationApi, conversationHeaderApi, residentApi, composerApi, chatViewApi, inputApi,
-    sessionFake, layoutFake,
+    sessionFake, layoutFake, imageInput,
   }
 }
 
@@ -206,6 +210,8 @@ describe('conversation slot inject API', () => {
     expect(absent.keyboard).toBeUndefined()
     expect(absent.toggleCommandMenu).toBeUndefined()
     expect(absent.stop).toBeUndefined()
+    expect(absent.readImageByPath).toBeUndefined()
+    expect(absent.sessionImageInput).toBeUndefined()
     expect(absent.hooks.notices.getSnapshot()).toBeNull()
     expect(absent.hooks.lexicon.getSnapshot().size).toBe(0)
     expect(absent.hooks.menuLauncher.getSnapshot()).toBeNull()
@@ -214,6 +220,30 @@ describe('conversation slot inject API', () => {
     const stop = injectFn(ROOT).stop!
     await b.feature.dispose()
     expect(() => { stop() }).toThrow(/unavailable through the session scope/)
+    await b.runtime.dispose()
+  })
+
+  it('panel-path faces probe the host capability and read the plugin-owned image route', async () => {
+    const b = await bench()
+    const injected = b.composerApi(ROOT)
+    await expect(injected.sessionImageInput!()).resolves.toBe(true)
+    expect(b.imageInput).toHaveBeenCalledWith({ sessionId: ROOT })
+    const fetchMock = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<unknown>>(
+      async () => ({ ok: true, status: 200, json: async () => ({ data: 'aGk=', mediaType: 'image/png' }) }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await injected.readImageByPath!('/proj/a.png')).toEqual({ ok: true, data: 'aGk=', mediaType: 'image/png' })
+    expect(fetchMock).toHaveBeenCalledWith('/dir/read-image', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path: '/proj/a.png' }),
+    })
+    // Failed status and malformed bodies come back as discriminated failures.
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 413, json: async () => ({}) })
+    expect(await injected.readImageByPath!('/proj/b.png')).toEqual({ ok: false, status: 413 })
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ data: 7 }) })
+    expect(await injected.readImageByPath!('/proj/c.png')).toEqual({ ok: false, status: 200 })
+    vi.unstubAllGlobals()
     await b.runtime.dispose()
   })
 

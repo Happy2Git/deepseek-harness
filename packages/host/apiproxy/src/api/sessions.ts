@@ -289,6 +289,13 @@ export interface SessionsApi {
   models(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<SessionModels>>
 
   /**
+   * Reports whether the session's current model accepts image input. `null`
+   * when the route does not declare input modalities (unknown, treated as not
+   * image-capable); subagents reject with `agent-busy`.
+   */
+  imageInput(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<boolean | null>>
+
+  /**
    * Selects the complete model selection for this session. Exact model metadata
    * validates an optional reasoning effort, while catalog membership remains
    * advisory. Session-backed subagents reject with `agent-busy`.

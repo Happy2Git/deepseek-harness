@@ -72,7 +72,7 @@ describe('BrowseDirectoryPicker', () => {
 
   it('cuts a level at maxEntries keeping the name-sorted head, and flags the cut', async () => {
     const ctx = new Context()
-    const fiber = ctx.plugin(BrowseDirectoryPicker, { maxEntries: 1, maxTextBytes: 262144 })
+    const fiber = ctx.plugin(BrowseDirectoryPicker, { maxEntries: 1, maxTextBytes: 262144, maxImageBytes: 8388608 })
     await fiber.await()
     const bounded = ctx.get('directoryPicker')!.capability()
     if (bounded.kind !== 'browse') throw new Error('browse backend must advertise the browse capability')
@@ -102,7 +102,7 @@ describe('BrowseDirectoryPicker', () => {
 
     // A tighter bound cuts the tail and reports it.
     const ctx = new Context()
-    const fiber = ctx.plugin(BrowseDirectoryPicker, { maxTextBytes: 5, maxEntries: 1000 })
+    const fiber = ctx.plugin(BrowseDirectoryPicker, { maxTextBytes: 5, maxEntries: 1000, maxImageBytes: 8388608 })
     await fiber.await()
     const bounded = ctx.get('directoryPicker')!.capability()
     if (bounded.kind !== 'browse') throw new Error('browse backend must advertise the browse capability')
@@ -124,6 +124,38 @@ describe('BrowseDirectoryPicker', () => {
     const gone = new AbortController()
     gone.abort(new Error('caller left'))
     await expect(capability.readText(notes, gone.signal)).rejects.toThrow('caller left')
+  })
+
+  it('reads raw image bytes fail-closed at the bound, rejects unqualified paths and aborts', async () => {
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01])
+    const png = join(root, 'pixel.png')
+    await writeFile(png, bytes)
+    expect(await capability.readImage(png)).toEqual({ path: png, data: new Uint8Array(bytes) })
+
+    // Bound exceeded: the read refuses whole, never cuts a partial image.
+    const ctx = new Context()
+    const fiber = ctx.plugin(BrowseDirectoryPicker, { maxImageBytes: 5, maxEntries: 1000, maxTextBytes: 262144 })
+    await fiber.await()
+    const bounded = ctx.get('directoryPicker')!.capability()
+    if (bounded.kind !== 'browse') throw new Error('browse backend must advertise the browse capability')
+    try {
+      await expect(bounded.readImage(png)).rejects.toMatchObject({ code: 'file-too-large' })
+      const exact = join(root, 'exact.png')
+      await writeFile(exact, Buffer.from([1, 2, 3, 4, 5]))
+      expect((await bounded.readImage(exact)).data.byteLength).toBe(5)
+    } finally {
+      await fiber.dispose()
+    }
+
+    // Same fully-qualified fence as readText: relative values never resolve.
+    await expect(capability.readImage('relative/p.png')).rejects.toThrow('not a fully qualified path')
+
+    // The caller's abort surfaces as its own reason, not as an unreadable file.
+    const gone = new AbortController()
+    gone.abort(new Error('caller left'))
+    await expect(capability.readImage(png, gone.signal)).rejects.toThrow('caller left')
+
+    await expect(capability.readImage(join(root, 'no-such.png'))).rejects.toMatchObject({ code: 'file-unreadable' })
   })
 
   it('stops the scan with the caller: an aborted signal rejects with its own reason', async () => {

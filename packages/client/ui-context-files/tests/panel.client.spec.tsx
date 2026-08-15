@@ -279,6 +279,23 @@ describe('PanelRoot', () => {
     expect(document.body.textContent).not.toContain('git: 忽略')
   })
 
+  it('file rows drag their absolute path for the composer intake', async () => {
+    const { props } = makeProps()
+    render(<PanelRoot {...props} />)
+    fireEvent.click(screen.getByRole('tab', { name: '文件夹' }))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    fireEvent.click(screen.getByLabelText('展开 proj'))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    const transfer = { setData: vi.fn(), effectAllowed: 'none' }
+    fireEvent.dragStart(screen.getByLabelText('打开 notes.md'), { dataTransfer: transfer })
+    expect(transfer.setData).toHaveBeenCalledWith('application/x-dsh-path', '/proj/notes.md')
+    expect(transfer.effectAllowed).toBe('copy')
+  })
+
   it('aborts the in-flight directory listing when the panel unmounts', async () => {
     const { props, listDirectory } = makeProps()
     listDirectory.mockImplementation(() => new Promise<DirectoryListing>(() => {}))
