@@ -447,6 +447,19 @@ export function SubagentCatalogAction({
     }
     : catalog
 
+  // One status dot per direct catalog entry, in catalog order: running
+  // children glow, settled children are done, diagnostics are errors. The
+  // strip mirrors the popup rows' per-entry dots without opening the tree.
+  const stripEntries = useMemo(
+    () => (catalog?.entries ?? []).map(entry => ({
+      id: entry.id,
+      state: entry.kind === 'child'
+        ? (entry.activity === 'running' ? 'ongoing' as const : 'done' as const)
+        : 'error' as const,
+    })),
+    [catalog],
+  )
+
   const observeCatalog = (parentSessionId: SessionId, next: boolean): void => {
     if (next) observedCatalogs.current.add(parentSessionId)
     else observedCatalogs.current.delete(parentSessionId)
@@ -582,11 +595,18 @@ export function SubagentCatalogAction({
           queueMicrotask(() => { focusAt(0) })
         }}
       >
-        <span className={css.activitySlot}>
-          {descendants.runningCount > 0 && <StateDot state="ongoing" />}
+        <span className={css.triggerRow}>
+          <span className={css.activitySlot}>
+            {descendants.runningCount > 0 && <StateDot state="ongoing" />}
+          </span>
+          <span className={css.count}>{t(totalCountKey, { count: descendantCount })}</span>
+          <IconChevronDownOutline14 className={open ? css.triggerOpen : undefined} />
         </span>
-        <span className={css.count}>{t(totalCountKey, { count: descendantCount })}</span>
-        <IconChevronDownOutline14 className={open ? css.triggerOpen : undefined} />
+        {/* One dot per direct child, ten to a row. Decorative: the accessible
+            name stays the count label, and each state lives in the tree rows. */}
+        <span className={css.dotStrip} aria-hidden="true">
+          {stripEntries.map(entry => <StateDot key={entry.id} state={entry.state} size={6} />)}
+        </span>
       </button>
       {open && (
         <div className={css.menu} role="tree" aria-label={t('tree.aria')}>

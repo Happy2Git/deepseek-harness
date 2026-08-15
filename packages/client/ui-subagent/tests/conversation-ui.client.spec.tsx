@@ -110,14 +110,14 @@ describe('SubagentCatalogAction', () => {
     const view = render(<SubagentCatalogAction {...props(catalog(), {}, summaries)} />)
 
     const trigger = screen.getByRole('button', { name: '1 个子代理，正在运行' })
-    expect(trigger.querySelector('[data-state="ongoing"]')).not.toBeNull()
+    expect(trigger.querySelector('svg[data-state="ongoing"]:not([height="6"])')).not.toBeNull()
 
     view.rerender(<SubagentCatalogAction {...props(catalog(), {}, {
       ...summaries,
       [GRANDCHILD]: { ...summaries[GRANDCHILD]!, running: false },
     })} />)
     expect(screen.getByRole('button', { name: '3 个子代理' })
-      .querySelector('[data-state="ongoing"]')).toBeNull()
+      .querySelector('svg[data-state="ongoing"]:not([height="6"])')).toBeNull()
   })
 
   it('does not aggregate subagents reached through an ordinary fork', () => {
@@ -133,7 +133,18 @@ describe('SubagentCatalogAction', () => {
     })} />)
 
     const trigger = screen.getByRole('button', { name: '2 个子代理' })
-    expect(trigger.querySelector('[data-state="ongoing"]')).toBeNull()
+    expect(trigger.querySelector('svg[data-state="ongoing"]:not([height="6"])')).toBeNull()
+  })
+
+  it('renders one status dot per direct entry in the always-visible strip', () => {
+    render(<SubagentCatalogAction {...props(catalog(), {})} />)
+    const trigger = screen.getByRole('button', { name: '2 个子代理' })
+    // Strip dots are 6px (ongoing svg carries height="6", settled/error states
+    // are spans); the activity-slot dot is the default-size svg.
+    const stripDots = [...trigger.querySelectorAll('[data-state]')]
+      .filter(el => el.tagName === 'SPAN' || el.getAttribute('height') === '6')
+      .map(el => el.getAttribute('data-state'))
+    expect(stripDots).toEqual(['ongoing', 'done', 'error'])
   })
 
   it('renders healthy counts, stable rows, diagnostics, and catalog-addressed navigation', () => {
