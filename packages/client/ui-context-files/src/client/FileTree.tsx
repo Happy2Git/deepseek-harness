@@ -7,7 +7,7 @@
  * listings are component-local state; expansion and the centered pop-out ride
  * the declared store.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { DirectoryListing } from '@deepseek-ai/dsh-host-directory-picker'
 import {
@@ -93,11 +93,21 @@ function CopyPathButton({ path }: { path: string }): ReactNode {
 export function FileTree(props: FileTreeProps): ReactNode {
   const [dirs, setDirs] = useState<ReadonlyMap<string, DirState>>(new Map())
   const [rootLabel, setRootLabel] = useState<string | null>(null)
+  /** In-flight listing controllers, aborted on root change and unmount. */
+  const loadersRef = useRef<AbortController[]>([])
 
   const load = useCallback((path: string): void => {
+    const controller = new AbortController()
+    loadersRef.current.push(controller)
+    const settled = (): void => {
+      loadersRef.current = loadersRef.current.filter(candidate => candidate !== controller)
+    }
     setDirs(prev => new Map(prev).set(path, { entries: [], truncated: false, loading: true, error: null }))
-    void props.listDirectory(path, new AbortController().signal).then(
+    void props.listDirectory(path, controller.signal).then(
       (listing) => {
+        settled()
+        // Aborted on unmount or root change: never set state afterwards.
+        if (controller.signal.aborted) return
         setDirs(prev => new Map(prev).set(path, {
           entries: listing.entries.filter(entry => !entry.hidden),
           truncated: listing.truncated,
@@ -108,6 +118,8 @@ export function FileTree(props: FileTreeProps): ReactNode {
         setRootLabel(tail?.name ?? listing.path)
       },
       (error: unknown) => {
+        settled()
+        if (controller.signal.aborted) return
         setDirs(prev => new Map(prev).set(path, {
           entries: [],
           truncated: false,
@@ -122,6 +134,11 @@ export function FileTree(props: FileTreeProps): ReactNode {
     setDirs(new Map())
     setRootLabel(null)
     if (props.root !== undefined) load(props.root)
+    return () => {
+      // Stop every in-flight listing before the next root's load or unmount.
+      for (const controller of loadersRef.current) controller.abort()
+      loadersRef.current = []
+    }
   }, [props.root, load])
 
   if (!props.hasSession) {
@@ -147,7 +164,7 @@ export function FileTree(props: FileTreeProps): ReactNode {
         <button
           type="button"
           className={css.chevron}
-          onClick={() => handleToggle(path)}
+          onClick={() => { handleToggle(path) }}
           aria-label={expanded ? `折叠 ${name}` : `展开 ${name}`}
         >
           {expanded
@@ -164,7 +181,7 @@ export function FileTree(props: FileTreeProps): ReactNode {
         <button
           type="button"
           className={css.openButton}
-          onClick={() => void props.openPath(path)}
+          onClick={() => { void props.openPath(path) }}
           title="在系统文件管理器中打开"
         >
           打开
@@ -198,7 +215,7 @@ export function FileTree(props: FileTreeProps): ReactNode {
             style={{ paddingLeft: `${8 + (depth + 1) * INDENT_PX}px` }}
             role="button"
             tabIndex={0}
-            onClick={() => props.onOpenFile(entry.path)}
+            onClick={() => { props.onOpenFile(entry.path) }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') props.onOpenFile(entry.path)
             }}
@@ -243,7 +260,7 @@ export function FileTree(props: FileTreeProps): ReactNode {
           className={css.filterInput}
           type="text"
           value={props.filter}
-          onChange={event => props.onFilter(event.target.value)}
+          onChange={(event) => { props.onFilter(event.target.value) }}
           placeholder="按名称过滤…"
           aria-label="按名称过滤目录"
         />
