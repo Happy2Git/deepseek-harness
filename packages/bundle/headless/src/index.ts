@@ -8,6 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { createInterface } from 'node:readline'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
@@ -16,11 +17,14 @@ import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-// Empty type imports carry the loader Context merge for the settlement await
-// and the cmdline Context merge for the appExit host value.
+import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
+// Empty type imports carry the loader Context merge for the settlement await,
+// the cmdline Context merge for the appExit host value, and the
+// permission-presets / approval service merges for the --mode / --jsonl paths.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-cmdline'
 import type {} from '@deepseek-ai/dsh-permission-presets'
+import type {} from '@deepseek-ai/dsh-user-approval'
 
 /** Stable Cordis plugin name. */
 export const name = 'headless-runner'
@@ -38,6 +42,8 @@ export interface Config {
   model?: string
   /** Permission mode: `read-only`, `workspace-write`, `danger-full-access`, or `confirm`. */
   mode?: string
+  /** Stream NDJSON session events and read approvals from stdin. */
+  jsonl?: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -45,6 +51,7 @@ export const Config: z<Config> = z.object({
   sessionId: z.string(),
   model: z.string(),
   mode: z.string(),
+  jsonl: z.boolean(),
 })
 
 /** `--mode` name to permission-preset key; `confirm` maps to the ask-approval preset. */
@@ -156,6 +163,36 @@ async function run(ctx: Context, config: Config, io: HeadlessIo): Promise<void> 
     }
     permissionPresets.set(agent.session, preset)
   }
+  // --jsonl turns stdout into a machine-readable event stream: each owned
+  // session event as one JSON line, approvals as an interactive request on
+  // stdout answered by an `approval/response` line on stdin.
+  const rl = config.jsonl === true ? createInterface({ input: process.stdin }) : undefined
+  if (config.jsonl === true) {
+    let pendingApproval: ((outcome: ApprovalOutcome) => void) | undefined
+    rl?.on('line', (line) => {
+      try {
+        const message = JSON.parse(line) as { type?: string; outcome?: ApprovalOutcome }
+        if (message.type === 'approval/response' && pendingApproval !== undefined && message.outcome !== undefined) {
+          const resolve = pendingApproval
+          pendingApproval = undefined
+          resolve(message.outcome)
+        }
+      } catch { /* ignore malformed input lines */ }
+    })
+    ctx.on('approval/request', (req) => {
+      io.stdout.write(JSON.stringify({
+        type: 'approval/request',
+        toolName: req.toolName,
+        callId: req.callId ?? null,
+        reason: req.reason ?? null,
+      }) + '\n')
+      return new Promise<ApprovalOutcome>((resolve) => { pendingApproval = resolve })
+    })
+    ctx.on('session/event', (session, event) => {
+      if (session.id !== agent.session.id) return
+      io.stdout.write(JSON.stringify({ type: event.type, data: event.data }) + '\n')
+    })
+  }
   await agent.whenIdle()
   const firstSeq = agent.session.seq
   agent.followup(createUserMessage({
@@ -165,10 +202,15 @@ async function run(ctx: Context, config: Config, io: HeadlessIo): Promise<void> 
   await agent.whenIdle()
   await sessions.flush(agent.session)
   const outcome = summarize(agent.session.events, firstSeq)
-  io.stdout.write(outcome.text + '\n')
+  if (config.jsonl === true) {
+    io.stdout.write(JSON.stringify({ type: 'done', reason: outcome.reason?.kind ?? 'completed', text: outcome.text }) + '\n')
+  } else {
+    io.stdout.write(outcome.text + '\n')
+  }
   if (outcome.reason?.kind === 'error') {
     io.stderr.write(`dsh: ${outcome.reason.error.code}: ${outcome.reason.error.message}\n`)
   }
+  rl?.close()
   io.exit(outcome.reason?.kind === 'completed' ? 0 : 1)
 }
 
