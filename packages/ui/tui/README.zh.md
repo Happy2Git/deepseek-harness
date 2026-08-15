@@ -29,5 +29,4 @@ dsh --profile cli --resume <id>
 ## 已知限制与后续工作
 
 - transcript 增量渲染（append-origin），但恢复的冷会话仍会一次性折叠整段历史；改用 projection cache 可进一步限制该重放。
-- Markdown 格式尚未渲染；reasoning 块以 `·` 前缀显示（经 `/details` 切换），工具卡显示折叠的调用/结果预览，而非结构化的 diff/terminal/search/read/web 意图。
-- `/model`（列出或选择）、`/clear`（重置可见 transcript）与 `/details`（切换 reasoning）已可用；`/plan`、`/compact`、`/goal` 由其各自的命令插件提供。
+- 工具卡忠实工具自身的 `presentCall`/`presentResult` 意图（diff/terminal/search/read/web），无 presenter 时回退为原始文本；样式使用一小套固定 ANSI 集，而非完整的主题调色板。

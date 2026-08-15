@@ -29,7 +29,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import type { ToolResult, ToolRuntime } from '@deepseek-ai/dsh-tools'
 import type { AskUserQuestionAnswer, AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
+import { formatMarkdown } from './markdown.ts'
+import { renderCall, renderResult } from './tool-cards.ts'
 // Empty type imports carry the loader Context merges for the settlement await,
 // the agent-default-model service, the token meter, and the approval waterfall.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
@@ -86,57 +89,83 @@ function contentText(blocks: readonly ContentBlock[]): string {
   return out
 }
 
-/** Truncate one tool result for the collapsed tool card. */
+/** Truncate one tool result for the collapsed fallback card. */
 const TOOL_RESULT_PREVIEW_CHARS = 240
 
-/** Fold one event into transcript lines, threading the last tool-call name. */
+/** A pending tool call's identity and parsed arguments, keyed by call id. */
+interface ToolCallRecord {
+  name: string
+  args: unknown
+}
+
+/**
+ * Fold one event into transcript lines. Tool calls and results pair through a
+ * call-id map, and both honor the tool's `presentCall`/`presentResult` intent;
+ * an absent presenter falls back to the raw name plus a truncated result.
+ */
 function foldEventLines(
   event: SessionEvent,
-  lastToolCall: string | undefined,
   showReasoning: boolean,
-): { lines: string[]; lastToolCall: string | undefined } {
+  tools: ToolRuntime | undefined,
+  callMap: Map<string, ToolCallRecord>,
+): string[] {
   switch (event.type) {
     case 'user/message': {
-      if (event.data.source.kind === 'user') {
-        const text = contentText(event.data.content).trim()
-        return text === '' ? { lines: [], lastToolCall } : { lines: [`> ${text}`], lastToolCall }
-      }
-      return { lines: [], lastToolCall }
+      if (event.data.source.kind !== 'user') return []
+      const text = formatMarkdown(contentText(event.data.content)).trim()
+      return text === '' ? [] : [`> ${text}`]
     }
     case 'assistant/message': {
       const lines: string[] = []
       for (const block of event.data.message.content) {
         if (block.type === 'reasoning') {
           if (showReasoning) {
-            const text = block.text.trim()
+            const text = formatMarkdown(block.text).trim()
             if (text !== '') lines.push(`  · ${text}`)
           }
         } else if (block.type === 'text') {
-          const text = block.text.trim()
+          const text = formatMarkdown(block.text).trim()
           if (text !== '') lines.push(text)
         }
       }
-      return { lines, lastToolCall }
+      return lines
     }
-    case 'tool/call':
-      return { lines: [`◇ ${event.data.name}`], lastToolCall: event.data.name }
+    case 'tool/call': {
+      let args: unknown
+      try {
+        args = JSON.parse(event.data.arguments)
+      } catch {
+        args = undefined
+      }
+      callMap.set(event.data.callId, { name: event.data.name, args })
+      const view = tools?.get(event.data.name)?.presentCall?.(args)
+      return [view === undefined ? `◇ ${event.data.name}` : renderCall(view)]
+    }
     case 'tool/result': {
-      const result = contentText(event.data.message.content).trim()
-      const preview = result.length > TOOL_RESULT_PREVIEW_CHARS
-        ? `${result.slice(0, TOOL_RESULT_PREVIEW_CHARS)}…`
-        : result
-      const label = lastToolCall === undefined ? '' : ` ${lastToolCall}`
-      const line = event.data.error === undefined
-        ? `✓${label}${preview === '' ? '' : `: ${preview}`}`
-        : `✗${label} (${event.data.error.code})${preview === '' ? '' : `: ${preview}`}`
-      return { lines: [line], lastToolCall }
+      const [resultBlock] = event.data.message.content
+      const call = callMap.get(event.data.message.source.callId)
+      const marker = event.data.error === undefined ? '✓' : `✗ (${event.data.error.code})`
+      const label = call === undefined ? '' : ` ${call.name}`
+      const lines: string[] = [marker + label]
+      if (call !== undefined && resultBlock !== undefined) {
+        const view = tools?.get(call.name)?.presentResult?.(call.args, {
+          content: resultBlock.content,
+          isError: resultBlock.isError === true,
+          ...(event.data.meta === undefined ? {} : { meta: event.data.meta }),
+        } satisfies ToolResult)
+        if (view !== undefined) lines.push(...renderResult(view))
+      }
+      if (lines.length === 1) {
+        const raw = contentText(resultBlock?.content ?? []).trim()
+        const preview = raw.length > TOOL_RESULT_PREVIEW_CHARS ? `${raw.slice(0, TOOL_RESULT_PREVIEW_CHARS)}…` : raw
+        if (preview !== '') lines.push(preview)
+      }
+      return lines
     }
-    case 'turn/end': {
-      const line = event.data.reason.kind === 'error' ? `✗ ${event.data.reason.error.message}` : undefined
-      return line === undefined ? { lines: [], lastToolCall } : { lines: [line], lastToolCall }
-    }
+    case 'turn/end':
+      return event.data.reason.kind === 'error' ? [`✗ ${event.data.reason.error.message}`] : []
     default:
-      return { lines: [], lastToolCall }
+      return []
   }
 }
 
@@ -302,16 +331,15 @@ export function apply(ctx: Context): () => void {
     // a long session re-renders in O(new) instead of re-folding the whole log.
     const transcriptLines: string[] = []
     let lastFoldedSeq = -1
-    let lastToolCall: string | undefined
+    const callMap = new Map<string, ToolCallRecord>()
     let showReasoning = true
+    const tools = ctx.get('tools')
 
     const render = (): void => {
       let changed = false
       for (const event of agent.session.events) {
         if (event.seq <= lastFoldedSeq) continue
-        const folded = foldEventLines(event, lastToolCall, showReasoning)
-        lastToolCall = folded.lastToolCall
-        transcriptLines.push(...folded.lines)
+        transcriptLines.push(...foldEventLines(event, showReasoning, tools, callMap))
         lastFoldedSeq = event.seq
         changed = true
       }
@@ -373,7 +401,7 @@ export function apply(ctx: Context): () => void {
         handler: () => {
           transcriptLines.length = 0
           lastFoldedSeq = agent.session.seq
-          lastToolCall = undefined
+          callMap.clear()
           render()
           return { kind: 'success' }
         },
@@ -387,7 +415,7 @@ export function apply(ctx: Context): () => void {
           // Toggling changes every assistant fold, so rebuild from scratch.
           transcriptLines.length = 0
           lastFoldedSeq = -1
-          lastToolCall = undefined
+          callMap.clear()
           render()
           return { kind: 'success', text: `reasoning ${showReasoning ? 'on' : 'off'}` }
         },

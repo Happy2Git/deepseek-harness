@@ -32,7 +32,9 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@earendil-works/pi-tui": "0.84.2"
+    "@earendil-works/pi-tui": "0.84.2",
+    "diff": "^9.0.0",
+    "marked": "^18.0.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
@@ -44,6 +46,7 @@
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-token-meter": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/dsh-user-approval": "workspace:^",
     "@deepseek-ai/dsh-user-questions": "workspace:^"
   },
@@ -57,6 +60,7 @@
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-token-meter": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/dsh-user-approval": "workspace:^",
     "@deepseek-ai/dsh-user-questions": "workspace:^"
   }
