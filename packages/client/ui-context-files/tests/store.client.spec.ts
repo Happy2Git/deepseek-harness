@@ -75,4 +75,23 @@ describe('createPanelStore', () => {
     a.actions.setTab('files')
     expect(b.store.getSnapshot()).toMatchObject({ tab: 'context' })
   })
+
+  it('rehydrates width, tab, and collapse from the persisted storage (reload)', () => {
+    const first = createPanelStore().create()
+    first.actions.setTab('git')
+    first.actions.setWidth(340)
+    first.actions.toggleCollapsed()
+    const second = createPanelStore().create()
+    expect(second.store.getSnapshot()).toMatchObject({ tab: 'git', width: 340, collapsed: true })
+  })
+
+  it('clears a rehydrated centered pop-out before any render can show it', () => {
+    const first = createPanelStore().create()
+    first.actions.openCenter('/proj/notes.md')
+    first.actions.openDocCenter(7)
+    first.actions.closeCenter()
+    first.actions.openCenter('/proj/again.md')
+    const second = createPanelStore().create()
+    expect(second.store.getSnapshot()).toMatchObject({ centerFile: null, centerDocSeq: null })
+  })
 })
