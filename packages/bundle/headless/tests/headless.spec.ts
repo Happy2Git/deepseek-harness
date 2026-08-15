@@ -1,13 +1,16 @@
 /** Direct one-shot Agent driving, durable aggregation, flushing, and exit mapping. */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox, assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
 import { createAssistantMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
+import { SessionNotFoundError } from '@deepseek-ai/dsh-session-persistence'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { apply, Config, internals } from '../src/index.ts'
 
 const originalInternals = { ...internals }
@@ -248,5 +251,133 @@ describe('headless runner', () => {
   it('validates config: the task is required', () => {
     expect(() => new Config({} as never)).toThrow()
     expect(new Config({ task: 'x' })).toEqual({ task: 'x' })
+  })
+
+  it('routes --model through both the agent options and the installed model selection', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentDefaultModelConfig, { provider: 'test-provider', model: 'default-model' })
+    await ctx.plugin(SystemPrompt)
+    let capturedOptions: CreateAgentOptions['agentOptions']
+    let capturedAgent: Agent | undefined
+    let capturedCtx: Context | undefined
+    ctx.agents.setFactory({
+      async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle> {
+        capturedOptions = options.agentOptions
+        const session = ctx.sessions.create(options.sessionId, {})
+        const agent = {} as Agent
+        const agentCtx = ownerCtx.extend({ agent })
+        Object.assign(agent, {
+          id: session.id,
+          options: options.agentOptions ?? {},
+          session,
+          inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+          status: 'idle',
+          ctx: agentCtx,
+          cancel: () => {},
+          runMaintenance: () => Promise.reject(new Error('not used')),
+          send: () => {},
+          followup: () => {},
+          steer: () => {},
+          inject: () => {},
+          whenIdle: () => Promise.resolve(),
+        } satisfies Partial<Agent>)
+        await options.setup?.(agentCtx)
+        capturedAgent = agent
+        capturedCtx = agentCtx
+        ctx.agents.register(agent)
+        return { agent, dispose: () => Promise.resolve() }
+      },
+      resume: () => Promise.reject(new Error('not used')),
+    })
+    internals.stdout = { write: () => true }
+    internals.stderr = { write: () => true }
+    ctx.provide('appExit', () => {})
+    apply(ctx, { task: 't', model: 'override' })
+    await vi.waitFor(() => { expect(capturedAgent).toBeDefined() })
+    expect(capturedOptions).toEqual({ provider: 'test-provider', model: 'override' })
+    const assembled = await capturedCtx!.systemPrompt.assemble(assembleContextFor(capturedAgent!))
+    expect(assembled.variables).toMatchObject({ provider: 'test-provider', model: 'override' })
+    await ctx.fiber.dispose()
+  })
+
+  it('falls back to create only when resume reports the session identity is absent', async () => {
+    const ctx = new Context()
+    let created = false
+    internals.stdout = { write: () => true }
+    internals.stderr = { write: () => true }
+    ctx.provide('appExit', () => {})
+    ctx.provide('agentDefaultModel', { currentSelection: () => ({ provider: 'p', model: 'm' }) } as never)
+    ctx.provide('sessions', { flush: () => Promise.resolve(true) } as never)
+    ctx.provide('agents', {
+      create: () => {
+        created = true
+        return Promise.resolve({
+          agent: {
+            session: { id: 'session-missing', seq: 0, events: [] },
+            whenIdle: () => Promise.resolve(),
+            followup: () => {},
+          },
+        })
+      },
+      resume: () => Promise.reject(new SessionNotFoundError(SessionId('missing'))),
+    } as never)
+    apply(ctx, { task: 't', sessionId: 'missing' })
+    await vi.waitFor(() => { expect(created).toBe(true) })
+    await ctx.fiber.dispose()
+  })
+
+  it('propagates a non-not-found resume failure instead of downgrading it to a create', async () => {
+    const ctx = new Context()
+    let created = false
+    let err = ''
+    internals.stdout = { write: () => true }
+    internals.stderr = { write: (chunk: string) => { err += chunk; return true } }
+    const exited = new Promise<number>((resolve) => { ctx.provide('appExit', resolve) })
+    ctx.provide('agentDefaultModel', { currentSelection: () => ({ provider: 'p', model: 'm' }) } as never)
+    ctx.provide('sessions', { flush: () => Promise.resolve(true) } as never)
+    ctx.provide('agents', {
+      create: () => { created = true; return Promise.resolve({}) },
+      resume: () => Promise.reject(new Error('durable log is corrupt')),
+    } as never)
+    apply(ctx, { task: 't', sessionId: 'broken' })
+    expect(await exited).toBe(1)
+    expect(err).toBe('dsh: durable log is corrupt\n')
+    expect(created).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
+  it('resolves --mode confirm to the workspace-write + ask preset, not the first ask preset', async () => {
+    const ctx = new Context()
+    let applied: string | undefined
+    internals.stdout = { write: () => true }
+    internals.stderr = { write: () => true }
+    ctx.provide('appExit', () => {})
+    ctx.provide('agentDefaultModel', { currentSelection: () => ({ provider: 'p', model: 'm' }) } as never)
+    ctx.provide('sessions', { flush: () => Promise.resolve(true) } as never)
+    // dsh-base's table order lists read-only (ask) before workspace-write, so a
+    // first-match on approval alone would misresolve confirm to read-only.
+    ctx.provide('permissionPresets', {
+      names: ['read-only', 'workspace-write', 'danger-full-access'],
+      resolve: (name: string) => ({
+        'read-only': { sandbox: 'read-only', approval: 'ask' },
+        'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
+        'danger-full-access': { sandbox: 'danger-full-access', approval: 'never' },
+      })[name],
+      set: (_session: unknown, name: string) => { applied = name },
+    } as never)
+    ctx.provide('agents', {
+      create: () => Promise.resolve({
+        agent: {
+          session: { id: 's', seq: 0, events: [] },
+          whenIdle: () => Promise.resolve(),
+          followup: () => {},
+        },
+      }),
+    } as never)
+    apply(ctx, { task: 't', mode: 'confirm' })
+    await vi.waitFor(() => { expect(applied).toBe('workspace-write') })
+    await ctx.fiber.dispose()
   })
 })
