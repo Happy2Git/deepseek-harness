@@ -30,4 +30,4 @@ dsh --profile cli --resume <id>
 
 - transcript 在每次事件时整段折叠事件日志；长会话渲染应改用 projection cache。
 - Markdown、reasoning 与工具卡渲染意图尚未渲染；transcript 目前是纯文本。
-- 终端本地的 `/model`、`/details`、`/clear` 选择器尚未实现；`/plan`、`/compact`、`/goal` 由其各自的命令插件提供。
+- 终端本地的 `/details` 选择器尚未实现；`/model`（列出或选择）与 `/clear`（重置可见 transcript）已可用，`/plan`、`/compact`、`/goal` 由其各自的命令插件提供。

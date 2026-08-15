@@ -257,11 +257,11 @@ export function apply(ctx: Context): () => void {
     }
 
     const selection = defaultModel.currentSelection()
-    // This bundle composes no preset roster, so the model-facing rows sit in
-    // the host plane and the agent reads them from the global layer.
+    // Mutable selection the terminal /model command switches; prompt assembly
+    // snapshots it before each step so a switch takes effect on the next one.
+    const modelSelection: ModelSelectionRef = { current: selection, assembled: undefined }
     const setup = (agentCtx: Context): void => {
-      const selected: ModelSelectionRef = { current: selection, assembled: undefined }
-      installModelSelection(agentCtx, selected)
+      installModelSelection(agentCtx, modelSelection)
     }
     const agentOptions = { provider: selection.provider, model: selection.model }
     const resumeTarget = (ctx.get('cliStartup') as { resume?: string } | undefined)?.resume
@@ -280,10 +280,11 @@ export function apply(ctx: Context): () => void {
         setup,
       })
 
+    let clearSeq = 0
     const render = (): void => {
-      renderTranscript(agent.session.events)
+      renderTranscript(agent.session.events.filter(event => event.seq >= clearSeq))
       const measurement = ctx.get('tokenMeter')?.measure(agent.session)
-      footerBase = `${selection.model} · ${measurement?.totalTokens ?? 0} tokens`
+      footerBase = `${modelSelection.current?.model ?? selection.model} · ${measurement?.totalTokens ?? 0} tokens`
       renderFooter()
     }
     ctx.on('session/event', (session) => {
@@ -316,7 +317,7 @@ export function apply(ctx: Context): () => void {
             kind: 'success',
             text: [
               `session ${agent.session.id}`,
-              `model ${selection.model}`,
+              `model ${modelSelection.current?.model ?? selection.model}`,
               `${agent.session.events.length} events`,
               `${measurement?.totalTokens ?? 0} tokens`,
             ].join('\n'),
@@ -330,6 +331,39 @@ export function apply(ctx: Context): () => void {
         handler: () => {
           stop()
           return { kind: 'success' }
+        },
+      })
+      commands.register({
+        name: 'clear',
+        description: 'clear the visible transcript',
+        recordInput: false,
+        handler: () => {
+          clearSeq = agent.session.seq
+          render()
+          return { kind: 'success' }
+        },
+      })
+      commands.register({
+        name: 'model',
+        description: 'list or select the model',
+        handler: async (invocation) => {
+          const provider = modelSelection.current?.provider ?? selection.provider
+          const currentModel = modelSelection.current?.model ?? selection.model
+          const target = invocation.rawInput.trim()
+          if (target === '') {
+            const llm = ctx.get('llm')
+            if (llm === undefined) return { kind: 'success', text: `current model: ${provider}/${currentModel}` }
+            const models = await llm.listModels(provider)
+            if (models.length === 0) return { kind: 'success', text: `current model: ${provider}/${currentModel}` }
+            return {
+              kind: 'success',
+              text: models
+                .map(model => `${model.id === currentModel ? '→ ' : '  '}${model.id} — ${model.name}`)
+                .join('\n'),
+            }
+          }
+          modelSelection.current = { provider, model: target }
+          return { kind: 'success', text: `model set to ${provider}/${target}` }
         },
       })
     }
