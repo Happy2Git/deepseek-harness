@@ -84,6 +84,18 @@ describe('JobListAction visibility', () => {
     expect(container.innerHTML).toBe('')
   })
 
+  it('orders the strip by start time so the newest job is the last dot', () => {
+    render(<JobListAction {...props([
+      job({ id: 'old' as JobView['id'], status: 'completed', startedAt: START, finishedAt: START + 1_000 }),
+      job({ id: 'new' as JobView['id'], startedAt: START + 10_000 }),
+    ])} />)
+    const trigger = screen.getByRole('button', { name: '1 个后台任务运行中' })
+    const states = [...trigger.querySelectorAll('[data-state]')].map(el => el.getAttribute('data-state'))
+    // Leading live indicator, then the settled old job, then the newest live
+    // job — the strip reads as a timeline.
+    expect(states).toEqual(['ongoing', 'done', 'ongoing'])
+  })
+
   it('counts only live jobs, and falls back to the total when none are live', () => {
     const { rerender } = render(<JobListAction {...props([job(), job({ id: 'bash-2' as JobView['id'] })])} />)
     expect(screen.getByRole('button', { name: '2 个后台任务运行中' })).toBeDefined()
