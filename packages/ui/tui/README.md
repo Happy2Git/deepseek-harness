@@ -30,4 +30,4 @@ This adapter adds no model-visible content of its own: terminal presentation, co
 
 - The transcript folds the whole event log on every event; long-session rendering should move to the projection cache.
 - Markdown, reasoning, and tool-card render intents are not yet rendered; the transcript is plain text.
-- The terminal-local `/model`, `/details`, and `/clear` selectors are not yet implemented; `/plan`, `/compact`, and `/goal` arrive through their own command plugins.
+- The terminal-local `/details` selector is not yet implemented; `/model` (list or select) and `/clear` (reset the visible transcript) are available, and `/plan`, `/compact`, and `/goal` arrive through their own command plugins.
