@@ -63,6 +63,22 @@ function rowCells(): string[][] {
 }
 
 describe('JobListAction visibility', () => {
+  it('renders one status dot per job in the always-visible strip', () => {
+    render(<JobListAction {...props([
+      job(),
+      job({ id: 'bash-2' as JobView['id'], status: 'failed', finishedAt: START + 5_000 }),
+      job({ id: 'bash-3' as JobView['id'], status: 'completed', finishedAt: START + 4_000 }),
+    ])} />)
+    // The strip is decorative (aria-hidden): one StateDot per job, plus the
+    // leading live indicator (also 'ongoing' with one running job).
+    const trigger = screen.getByRole('button', { name: '1 个后台任务运行中' })
+    expect(trigger.querySelectorAll('[data-state]').length).toBe(4)
+    expect(trigger.querySelectorAll('[data-state="ongoing"]').length).toBe(2)
+    expect(trigger.querySelector('[data-state="error"]')).not.toBeNull()
+    expect(trigger.querySelector('[data-state="done"]')).not.toBeNull()
+  })
+
+
   it('renders nothing while the session has no jobs', () => {
     const { container } = render(<JobListAction {...props(undefined)} />)
     expect(container.innerHTML).toBe('')
