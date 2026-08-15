@@ -4,7 +4,7 @@
  */
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { DirectoryListing, DirectoryRead } from '@deepseek-ai/dsh-host-directory-picker'
-import type { GitCommitDetail, GitGraphPage } from '@deepseek-ai/dsh-host-git'
+import type { GitCommitDetail, GitFileDiff, GitGraphPage, GitWorkspaceStatus } from '@deepseek-ai/dsh-host-git'
 
 /** One injected-context document projected from a logged non-user message. */
 export interface ContextDoc {
@@ -42,6 +42,10 @@ export interface InjectedFace {
   gitGraph: (cwd: string, count: number | undefined, skip: number | undefined, signal: AbortSignal) => Promise<GitGraphPage>
   /** One commit's metadata and changed files. */
   gitShowCommit: (cwd: string, hash: string, signal: AbortSignal) => Promise<GitCommitDetail>
+  /** One read-only snapshot of the working tree (branch, ahead/behind, uncommitted files). */
+  workspaceStatus: (cwd: string, signal: AbortSignal) => Promise<GitWorkspaceStatus>
+  /** One file's unified diff within one commit. */
+  showFileDiff: (cwd: string, hash: string, path: string, signal: AbortSignal) => Promise<GitFileDiff>
   /** Project the injected-context documents of one session from its loaded log window. */
   readInjectedDocs: (sessionId: SessionId) => ContextDoc[]
   /** Whether the session log has older pages beyond the loaded window. */

@@ -61,6 +61,8 @@ let routes: WebRoute[]
 let local: LocalGit
 let graphMock: ReturnType<typeof vi.fn>
 let showCommitMock: ReturnType<typeof vi.fn>
+let workspaceMock: ReturnType<typeof vi.fn>
+let showDiffMock: ReturnType<typeof vi.fn>
 let fiber: { dispose: () => Promise<void> }
 
 beforeEach(async () => {
@@ -84,6 +86,12 @@ beforeEach(async () => {
   showCommitMock = vi.spyOn(local, 'showCommit').mockResolvedValue({
     hash: '', message: '', author: '', date: '', files: [], truncated: false,
   })
+  workspaceMock = vi.spyOn(local, 'workspaceStatus').mockResolvedValue({
+    branch: 'main', upstream: 'origin/main', ahead: 0, behind: 0, files: [], truncated: false,
+  })
+  showDiffMock = vi.spyOn(local, 'showFileDiff').mockResolvedValue({
+    path: 'README.md', diff: '', truncated: false,
+  })
 })
 
 afterEach(async () => {
@@ -98,8 +106,8 @@ function routeAt(path: string): WebRoute {
 }
 
 describe('route registration', () => {
-  it('registers the two exact git routes', () => {
-    expect(routes.map(route => route.path).sort()).toEqual(['/git/graph', '/git/show-commit'])
+  it('registers the four exact git routes', () => {
+    expect(routes.map(route => route.path).sort()).toEqual(['/git/graph', '/git/show-commit', '/git/show-diff', '/git/workspace'])
     for (const route of routes) expect(route.kind).toBe('exact')
   })
 })
@@ -226,5 +234,53 @@ describe('/git/show-commit', () => {
     expect(responseStatus(res)).toBe(400)
     expect(responseBody(res)).toEqual({ error: { message: 'cwd must be an absolute path' } })
     expect(showCommitMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('/git/workspace', () => {
+  it('delegates the cwd to workspaceStatus', async () => {
+    const res = makeResponse()
+    await routeAt('/git/workspace').handler(makeRequest(JSON.stringify({ cwd: '/repo' })), res)
+    expect(workspaceMock).toHaveBeenCalledWith('/repo', expect.any(AbortSignal))
+    expect(responseStatus(res)).toBe(200)
+    expect(responseBody(res)).toMatchObject({ branch: 'main' })
+  })
+
+  it('answers 400 for a relative cwd', async () => {
+    const res = makeResponse()
+    await routeAt('/git/workspace').handler(makeRequest(JSON.stringify({ cwd: 'repo' })), res)
+    expect(responseStatus(res)).toBe(400)
+    expect(workspaceMock).not.toHaveBeenCalled()
+  })
+
+  it('answers 400 for a missing body', async () => {
+    const res = makeResponse()
+    await routeAt('/git/workspace').handler(makeRequest(undefined), res)
+    expect(responseStatus(res)).toBe(400)
+    expect(workspaceMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('/git/show-diff', () => {
+  it('delegates cwd, hash, and path to showFileDiff', async () => {
+    const res = makeResponse()
+    await routeAt('/git/show-diff').handler(makeRequest(JSON.stringify({ cwd: '/repo', hash: 'abc', path: 'README.md' })), res)
+    expect(showDiffMock).toHaveBeenCalledWith('/repo', 'abc', 'README.md', expect.any(AbortSignal))
+    expect(responseStatus(res)).toBe(200)
+  })
+
+  it('answers 400 for a missing path', async () => {
+    const res = makeResponse()
+    await routeAt('/git/show-diff').handler(makeRequest(JSON.stringify({ cwd: '/repo', hash: 'abc' })), res)
+    expect(responseStatus(res)).toBe(400)
+    expect(responseBody(res)).toEqual({ error: { message: 'missing path' } })
+    expect(showDiffMock).not.toHaveBeenCalled()
+  })
+
+  it('answers 400 for a relative cwd', async () => {
+    const res = makeResponse()
+    await routeAt('/git/show-diff').handler(makeRequest(JSON.stringify({ cwd: 'repo', hash: 'abc', path: 'x' })), res)
+    expect(responseStatus(res)).toBe(400)
+    expect(showDiffMock).not.toHaveBeenCalled()
   })
 })

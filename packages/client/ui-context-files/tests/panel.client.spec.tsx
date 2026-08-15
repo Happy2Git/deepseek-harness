@@ -8,11 +8,11 @@
  * directory tree with hidden entries filtered out.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { DirectoryListing, DirectoryRead } from '@deepseek-ai/dsh-host-directory-picker'
-import type { GitCommitDetail, GitGraphPage } from '@deepseek-ai/dsh-host-git'
+import type { GitCommitDetail, GitFileDiff, GitGraphPage, GitWorkspaceStatus } from '@deepseek-ai/dsh-host-git'
 import type { SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
 import { PanelRoot } from '@deepseek-ai/dsh-client-ui-context-files/src/client/PanelRoot.tsx'
 import type { PanelRootProps } from '@deepseek-ai/dsh-client-ui-context-files/src/client/PanelRoot.tsx'
@@ -63,6 +63,12 @@ const COMMIT_DETAIL: GitCommitDetail = {
   truncated: false,
 }
 
+const WORKSPACE: GitWorkspaceStatus = {
+  branch: 'main', upstream: 'origin/main', ahead: 1, behind: 0,
+  files: [{ path: 'README.md', status: 'modified', additions: 1, deletions: 1 }],
+  truncated: false,
+}
+
 /** Build the complete props share around one fresh store instance. */
 function makeProps(): {
   props: PanelRootProps
@@ -70,6 +76,8 @@ function makeProps(): {
   readText: ReturnType<typeof vi.fn>
   gitGraph: ReturnType<typeof vi.fn>
   gitShowCommit: ReturnType<typeof vi.fn>
+  workspaceStatus: ReturnType<typeof vi.fn>
+  showFileDiff: ReturnType<typeof vi.fn>
 } {
   const instance = createPanelStore().create()
   const current = 's1' as SessionId
@@ -91,6 +99,8 @@ function makeProps(): {
   })
   const gitGraph = vi.fn(async (): Promise<GitGraphPage> => GRAPH_PAGE)
   const gitShowCommit = vi.fn(async (): Promise<GitCommitDetail> => COMMIT_DETAIL)
+  const workspaceStatus = vi.fn(async (): Promise<GitWorkspaceStatus> => WORKSPACE)
+  const showFileDiff = vi.fn(async (): Promise<GitFileDiff> => ({ path: 'README.md', diff: '+diff line\n', truncated: false }))
   const props = {
     useSessions: selector => selector(sessionState),
     useWorkspaces: () => ({}) as never,
@@ -102,12 +112,14 @@ function makeProps(): {
     openPath: vi.fn(async () => {}),
     gitGraph,
     gitShowCommit,
+    workspaceStatus,
+    showFileDiff,
     readInjectedDocs: vi.fn((): ContextDoc[] => DOCS),
     hasMoreDocs: vi.fn((): boolean => true),
     loadOlderDocs: vi.fn(async () => {}),
     sessionCwd: () => '/proj',
   } as PanelRootProps
-  return { props, listDirectory, readText, gitGraph, gitShowCommit }
+  return { props, listDirectory, readText, gitGraph, gitShowCommit, workspaceStatus, showFileDiff }
 }
 
 afterEach(() => {
@@ -369,5 +381,41 @@ describe('PanelRoot', () => {
     expect(gitShowCommit).toHaveBeenCalledWith('/proj', 'a'.repeat(40), expect.anything())
     expect(document.body.textContent).toContain('README.md')
     expect(document.body.textContent).toContain('新增')
+  })
+
+  it('shows the working-tree block with branch position and uncommitted files', async () => {
+    const { props, workspaceStatus } = makeProps()
+    render(<PanelRoot {...props} />)
+    fireEvent.click(screen.getByRole('tab', { name: 'Git' }))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(workspaceStatus).toHaveBeenCalledWith('/proj', expect.anything())
+    expect(document.body.textContent).toContain('工作区')
+    expect(document.body.textContent).toContain('分支 main · 领先 1 · 落后 0')
+    expect(document.body.textContent).toContain('README.md')
+    expect(document.body.textContent).toContain('修改')
+  })
+
+  it('opens the file diff in the centered pop-out from a commit row', async () => {
+    const { props, showFileDiff } = makeProps()
+    render(<PanelRoot {...props} />)
+    fireEvent.click(screen.getByRole('tab', { name: 'Git' }))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    fireEvent.click(screen.getByText('初始提交'))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    // The workspace block lists README.md too; the click targets the row
+    // inside the expanded commit.
+    const commitRow = screen.getByText('初始提交').closest('div')!
+    fireEvent.click(within(commitRow).getByText('README.md'))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(showFileDiff).toHaveBeenCalledWith('/proj', 'a'.repeat(40), 'README.md', expect.anything())
+    expect(document.body.querySelector('[role="dialog"]')!.textContent).toContain('+diff line')
   })
 })
