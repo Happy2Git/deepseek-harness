@@ -31,10 +31,16 @@ export const inject = ['agentDefaultModel', 'agents', 'sessions']
 export interface Config {
   /** The prompt text for the single run. */
   task: string
+  /** Persisted session id to create-or-resume; a fresh id is minted when absent. */
+  sessionId?: string
+  /** Model id overriding the default selection for this run. */
+  model?: string
 }
 
 export const Config: z<Config> = z.object({
   task: z.string().required(),
+  sessionId: z.string(),
+  model: z.string(),
 })
 
 /** Outcome of one owned run interval. */
@@ -93,7 +99,7 @@ function fail(io: HeadlessIo, error: unknown): void {
  * @param task - one-shot task text.
  * @param io - process-facing effects.
  */
-async function run(ctx: Context, task: string, io: HeadlessIo): Promise<void> {
+async function run(ctx: Context, config: Config, io: HeadlessIo): Promise<void> {
   // Loader siblings mount concurrently. Await the complete application before
   // creating an Agent so its scoped tools and adapters are not half-composed.
   await ctx.get('loader')?.await()
@@ -104,23 +110,36 @@ async function run(ctx: Context, task: string, io: HeadlessIo): Promise<void> {
   if (agents === undefined || defaultModel === undefined || sessions === undefined) return
 
   const selection = defaultModel.currentSelection()
-  // This bundle composes no preset roster, so the model-facing rows sit in the
-  // host plane and the agent reads them from the global layer. A deployment
-  // that DOES configure one has to join it here first
-  // (@deepseek-ai/dsh-agent-presets README, "Composing a child agent").
-  const { agent } = await agents.create({
-    sessionId: SessionId(`session-${randomUUID()}`),
-    meta: { cwd: process.cwd() },
-    agentOptions: { provider: selection.provider, model: selection.model },
-    setup: (agentCtx) => {
-      const selected: ModelSelectionRef = { current: selection, assembled: undefined }
-      installModelSelection(agentCtx, selected)
-    },
-  })
+  const agentOptions = { provider: selection.provider, model: config.model ?? selection.model }
+  const setup = (agentCtx: Context): void => {
+    const selected: ModelSelectionRef = { current: selection, assembled: undefined }
+    installModelSelection(agentCtx, selected)
+  }
+  // create-once, resume-always: a --session-id resumes the persisted session
+  // and falls back to creating it with that exact id. A run without it mints a
+  // fresh process-local id.
+  const requestedSessionId = config.sessionId === undefined ? undefined : SessionId(config.sessionId)
+  const { agent } = requestedSessionId === undefined
+    ? await agents.create({
+      sessionId: SessionId(`session-${randomUUID()}`),
+      meta: { cwd: process.cwd() },
+      agentOptions,
+      setup,
+    })
+    : await agents.resume({
+      resumeSessionId: requestedSessionId,
+      agentOptions,
+      setup,
+    }).catch(async () => agents.create({
+      sessionId: requestedSessionId,
+      meta: { cwd: process.cwd() },
+      agentOptions,
+      setup,
+    }))
   await agent.whenIdle()
   const firstSeq = agent.session.seq
   agent.followup(createUserMessage({
-    content: [{ type: 'text', text: task }],
+    content: [{ type: 'text', text: config.task }],
     source: { kind: 'user' },
   }))
   await agent.whenIdle()
@@ -146,5 +165,5 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error('headless-runner: the launcher must provide ctx.appExit before the tree mounts')
   }
   const io: HeadlessIo = { stdout: internals.stdout, stderr: internals.stderr, exit }
-  void run(ctx, config.task, io).catch((error: unknown) => { fail(io, error) })
+  void run(ctx, config, io).catch((error: unknown) => { fail(io, error) })
 }
