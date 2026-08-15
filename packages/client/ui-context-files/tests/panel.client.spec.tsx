@@ -12,7 +12,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { useSyncExternalStore } from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { DirectoryListing, DirectoryRead } from '@deepseek-ai/dsh-host-directory-picker'
-import type { GitCommitDetail, GitFileDiff, GitGraphPage, GitWorkspaceStatus } from '@deepseek-ai/dsh-host-git'
+import type { GitCommitDetail, GitFileDiff, GitGraphPage, GitStatusFile, GitWorkspaceStatus } from '@deepseek-ai/dsh-host-git'
 import type { SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
 import { PanelRoot } from '@deepseek-ai/dsh-client-ui-context-files/src/client/PanelRoot.tsx'
 import type { PanelRootProps } from '@deepseek-ai/dsh-client-ui-context-files/src/client/PanelRoot.tsx'
@@ -46,6 +46,12 @@ const LISTING: DirectoryListing = {
   truncated: false,
 }
 
+const STATUS_FILES: GitStatusFile[] = [
+  { name: 'notes.md', status: 'modified' },
+  { name: 'data.json', status: 'untracked' },
+  { name: '.git', status: 'ignored' },
+]
+
 const GRAPH_PAGE: GitGraphPage = {
   entries: [
     { hash: 'a'.repeat(40), parents: [], refs: 'HEAD -> main', message: '初始提交', author: '测试', date: '2026-01-01T00:00:00+00:00' },
@@ -78,6 +84,7 @@ function makeProps(): {
   gitShowCommit: ReturnType<typeof vi.fn>
   workspaceStatus: ReturnType<typeof vi.fn>
   showFileDiff: ReturnType<typeof vi.fn>
+  gitStatusFor: ReturnType<typeof vi.fn>
 } {
   const instance = createPanelStore().create()
   const current = 's1' as SessionId
@@ -101,6 +108,7 @@ function makeProps(): {
   const gitShowCommit = vi.fn(async (): Promise<GitCommitDetail> => COMMIT_DETAIL)
   const workspaceStatus = vi.fn(async (): Promise<GitWorkspaceStatus> => WORKSPACE)
   const showFileDiff = vi.fn(async (): Promise<GitFileDiff> => ({ path: 'README.md', diff: '+diff line\n', truncated: false }))
+  const gitStatusFor = vi.fn(async (): Promise<GitStatusFile[]> => STATUS_FILES)
   const props = {
     useSessions: selector => selector(sessionState),
     useWorkspaces: () => ({}) as never,
@@ -114,12 +122,13 @@ function makeProps(): {
     gitShowCommit,
     workspaceStatus,
     showFileDiff,
+    gitStatusFor,
     readInjectedDocs: vi.fn((): ContextDoc[] => DOCS),
     hasMoreDocs: vi.fn((): boolean => true),
     loadOlderDocs: vi.fn(async () => {}),
     sessionCwd: () => '/proj',
   } as PanelRootProps
-  return { props, listDirectory, readText, gitGraph, gitShowCommit, workspaceStatus, showFileDiff }
+  return { props, listDirectory, readText, gitGraph, gitShowCommit, workspaceStatus, showFileDiff, gitStatusFor }
 }
 
 afterEach(() => {
@@ -246,6 +255,28 @@ describe('PanelRoot', () => {
     })
     expect(listDirectory).toHaveBeenCalledWith('/proj', expect.anything())
     expect(document.body.textContent).toContain('proj')
+  })
+
+  it('badges file rows with their git working-tree status', async () => {
+    const { props, gitStatusFor } = makeProps()
+    render(<PanelRoot {...props} />)
+    fireEvent.click(screen.getByRole('tab', { name: '文件夹' }))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    // The status fetch resolves one microtask after the listing does.
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(gitStatusFor).toHaveBeenCalledWith('/proj', expect.anything())
+    // Child rows render once the root expands.
+    fireEvent.click(screen.getByLabelText('展开 proj'))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(screen.getByLabelText('git: 修改')).not.toBeNull()
+    expect(screen.getByLabelText('git: 未跟踪')).not.toBeNull()
+    expect(document.body.textContent).not.toContain('git: 忽略')
   })
 
   it('aborts the in-flight directory listing when the panel unmounts', async () => {

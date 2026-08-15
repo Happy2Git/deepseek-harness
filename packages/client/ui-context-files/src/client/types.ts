@@ -4,7 +4,7 @@
  */
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { DirectoryListing, DirectoryRead } from '@deepseek-ai/dsh-host-directory-picker'
-import type { GitCommitDetail, GitFileDiff, GitGraphPage, GitWorkspaceStatus } from '@deepseek-ai/dsh-host-git'
+import type { GitCommitDetail, GitFileDiff, GitGraphPage, GitStatusFile, GitWorkspaceStatus } from '@deepseek-ai/dsh-host-git'
 
 /** One injected-context document projected from a logged non-user message. */
 export interface ContextDoc {
@@ -46,6 +46,8 @@ export interface InjectedFace {
   workspaceStatus: (cwd: string, signal: AbortSignal) => Promise<GitWorkspaceStatus>
   /** One file's unified diff within one commit. */
   showFileDiff: (cwd: string, hash: string, path: string, signal: AbortSignal) => Promise<GitFileDiff>
+  /** One directory's per-child working-tree statuses for the tree badges. */
+  gitStatusFor: (dir: string, signal: AbortSignal) => Promise<GitStatusFile[]>
   /** Project the injected-context documents of one session from its loaded log window. */
   readInjectedDocs: (sessionId: SessionId) => ContextDoc[]
   /** Whether the session log has older pages beyond the loaded window. */

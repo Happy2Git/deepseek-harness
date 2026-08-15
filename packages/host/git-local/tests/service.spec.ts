@@ -162,6 +162,38 @@ describe('LocalGit.workspaceStatus', () => {
   })
 })
 
+describe('LocalGit.directoryStatus', () => {
+  it('reports direct children as modified, untracked, and ignored', async () => {
+    // Clear the leftovers of the earlier workspace tests, then build a known
+    // dirty tree: one modified, two untracked, one ignored.
+    git(repo, ['reset', '--hard', 'HEAD'])
+    git(repo, ['clean', '-fd'])
+    await writeFile(join(repo, '.gitignore'), 'ignored.txt\n')
+    await writeFile(join(repo, 'README.md'), 'dirty again\n')
+    await writeFile(join(repo, 'fresh.txt'), 'x\n')
+    await writeFile(join(repo, 'ignored.txt'), 'x\n')
+    const files = await local.directoryStatus(repo)
+    expect(files).toEqual([
+      { name: '.gitignore', status: 'untracked' },
+      { name: 'README.md', status: 'modified' },
+      { name: 'fresh.txt', status: 'untracked' },
+      { name: 'ignored.txt', status: 'ignored' },
+    ])
+  })
+
+  it('returns an empty list outside any repository', async () => {
+    const files = await local.directoryStatus(outside)
+    expect(files).toEqual([])
+  })
+
+  it('reports only direct children, not nested paths', async () => {
+    await mkdir(join(repo, 'nested'))
+    await writeFile(join(repo, 'nested', 'deep.txt'), 'x\n')
+    const files = await local.directoryStatus(repo)
+    expect(files.some(file => file.name === 'deep.txt')).toBe(false)
+  })
+})
+
 describe('LocalGit.showFileDiff', () => {
   it('returns the unified diff of one file in one commit', async () => {
     const page = await local.graph(repo, { count: 3 })
