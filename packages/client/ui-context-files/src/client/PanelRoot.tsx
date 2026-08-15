@@ -102,9 +102,14 @@ function CenterDocPreview({ doc, onClose }: { doc: ContextDoc; onClose: () => vo
  * @returns the entry's rendered surface.
  */
 export function PanelRoot(props: PanelRootProps): ReactNode {
+  // Injected callbacks as locals: passing a property function reference
+  // onward would trip the unbound-method lint and hide the ownership.
+  const {
+    actions, renderSlot, listDirectory, openPath, readText, gitGraph, gitShowCommit,
+    readInjectedDocs, hasMoreDocs, loadOlderDocs,
+  } = props
   const sessions = props.useSessions(s => s)
   const state = props.useStore(s => s)
-  const { actions, renderSlot } = props
   const current = sessions.current
   const cwd = current === undefined ? undefined : props.sessionCwd(current)
 
@@ -174,16 +179,22 @@ export function PanelRoot(props: PanelRootProps): ReactNode {
       setDocs([])
       return
     }
-    setDocs(props.readInjectedDocs(current))
-  }, [current, docsRev, props.readInjectedDocs])
+    setDocs(readInjectedDocs(current))
+  }, [current, docsRev, readInjectedDocs])
 
   const handleLoadOlder = (): void => {
     if (current === undefined || loadingOlder) return
     setLoadingOlder(true)
-    void props.loadOlderDocs(current).then(() => {
-      setDocs(props.readInjectedDocs(current))
-      setLoadingOlder(false)
-    })
+    void loadOlderDocs(current).then(
+      () => {
+        setDocs(readInjectedDocs(current))
+      },
+      () => {
+        // Swallow the load failure: the older-document window simply stays as
+        // it is — there is no error surface to update, only the button below
+        // must re-enable.
+      },
+    ).then(() => { setLoadingOlder(false) })
   }
 
   return (
@@ -191,7 +202,7 @@ export function PanelRoot(props: PanelRootProps): ReactNode {
       {state.centerFile !== null && (
         <CenterPreview
           path={state.centerFile}
-          readText={props.readText}
+          readText={readText}
           onClose={actions.closeCenter}
         />
       )}
@@ -250,7 +261,7 @@ export function PanelRoot(props: PanelRootProps): ReactNode {
                   role="tab"
                   aria-selected={state.tab === 'context'}
                   className={clsx(css.tab, state.tab === 'context' && css.tabActive)}
-                  onClick={() => actions.setTab('context')}
+                  onClick={() => { actions.setTab('context') }}
                 >
                   上下文
                 </button>
@@ -259,7 +270,7 @@ export function PanelRoot(props: PanelRootProps): ReactNode {
                   role="tab"
                   aria-selected={state.tab === 'files'}
                   className={clsx(css.tab, state.tab === 'files' && css.tabActive)}
-                  onClick={() => actions.setTab('files')}
+                  onClick={() => { actions.setTab('files') }}
                 >
                   文件夹
                 </button>
@@ -268,7 +279,7 @@ export function PanelRoot(props: PanelRootProps): ReactNode {
                   role="tab"
                   aria-selected={state.tab === 'git'}
                   className={clsx(css.tab, state.tab === 'git' && css.tabActive)}
-                  onClick={() => actions.setTab('git')}
+                  onClick={() => { actions.setTab('git') }}
                 >
                   Git
                 </button>
@@ -279,9 +290,9 @@ export function PanelRoot(props: PanelRootProps): ReactNode {
                 <ContextDocs
                   docs={docs}
                   onOpenDoc={actions.openDocCenter}
-                  onRefresh={() => setDocsRev(rev => rev + 1)}
+                  onRefresh={() => { setDocsRev(rev => rev + 1) }}
                   hasSession={current !== undefined}
-                  hasMore={current !== undefined && props.hasMoreDocs(current)}
+                  hasMore={current !== undefined && hasMoreDocs(current)}
                   loadingOlder={loadingOlder}
                   onLoadOlder={handleLoadOlder}
                 />
@@ -293,8 +304,8 @@ export function PanelRoot(props: PanelRootProps): ReactNode {
                   expandedDirs={state.expandedDirs}
                   onToggleDir={actions.toggleDir}
                   onFilter={actions.setFilter}
-                  listDirectory={props.listDirectory}
-                  openPath={props.openPath}
+                  listDirectory={listDirectory}
+                  openPath={openPath}
                   onOpenFile={actions.openCenter}
                   hasSession={current !== undefined}
                 />
@@ -302,8 +313,8 @@ export function PanelRoot(props: PanelRootProps): ReactNode {
               {state.tab === 'git' && (
                 <GitGraph
                   cwd={cwd}
-                  gitGraph={props.gitGraph}
-                  gitShowCommit={props.gitShowCommit}
+                  gitGraph={gitGraph}
+                  gitShowCommit={gitShowCommit}
                 />
               )}
             </div>

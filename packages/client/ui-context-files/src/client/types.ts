@@ -25,25 +25,27 @@ export interface ContextDoc {
 /**
  * The injected face the panel component receives: plain callbacks closed over
  * the apply context. Event-handler reads only; render reads arrive through
- * the framework hooks and the declared store.
+ * the framework hooks and the declared store. Property-function syntax (not
+ * method syntax) matches the arrow closures apply produces — no `this` — and
+ * keeps unbound-method lint silent at every pass-through site.
  */
 export interface InjectedFace {
   /** List one directory level through the Host's browse capability. */
-  listDirectory(path: string | undefined, signal: AbortSignal): Promise<DirectoryListing>
+  listDirectory: (path: string | undefined, signal: AbortSignal) => Promise<DirectoryListing>
   /** Read one text file's content through the Host's browse capability. */
-  readText(path: string, signal: AbortSignal): Promise<DirectoryRead>
+  readText: (path: string, signal: AbortSignal) => Promise<DirectoryRead>
   /** Open a path with the Host operating system's default application. */
-  openPath(path: string): Promise<void>
+  openPath: (path: string) => Promise<void>
   /** One bounded page of the topo-ordered commit graph for a repository. */
-  gitGraph(cwd: string, count: number | undefined, skip: number | undefined, signal: AbortSignal): Promise<GitGraphPage>
+  gitGraph: (cwd: string, count: number | undefined, skip: number | undefined, signal: AbortSignal) => Promise<GitGraphPage>
   /** One commit's metadata and changed files. */
-  gitShowCommit(cwd: string, hash: string, signal: AbortSignal): Promise<GitCommitDetail>
+  gitShowCommit: (cwd: string, hash: string, signal: AbortSignal) => Promise<GitCommitDetail>
   /** Project the injected-context documents of one session from its loaded log window. */
-  readInjectedDocs(sessionId: SessionId): ContextDoc[]
+  readInjectedDocs: (sessionId: SessionId) => ContextDoc[]
   /** Whether the session log has older pages beyond the loaded window. */
-  hasMoreDocs(sessionId: SessionId): boolean
+  hasMoreDocs: (sessionId: SessionId) => boolean
   /** Page one earlier history batch into the window (older documents then join the projection). */
-  loadOlderDocs(sessionId: SessionId): Promise<void>
+  loadOlderDocs: (sessionId: SessionId) => Promise<void>
   /** The session's workspace directory, absent when the host row carries none. */
-  sessionCwd(sessionId: SessionId): string | undefined
+  sessionCwd: (sessionId: SessionId) => string | undefined
 }

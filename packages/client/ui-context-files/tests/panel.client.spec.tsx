@@ -66,7 +66,7 @@ const COMMIT_DETAIL: GitCommitDetail = {
 /** Build the complete props share around one fresh store instance. */
 function makeProps(): {
   props: PanelRootProps
-  listDirectory: ReturnType<typeof vi.fn>
+  listDirectory: ReturnType<typeof vi.fn<(path?: string, signal?: AbortSignal) => Promise<DirectoryListing>>>
   readText: ReturnType<typeof vi.fn>
   gitGraph: ReturnType<typeof vi.fn>
   gitShowCommit: ReturnType<typeof vi.fn>
@@ -84,7 +84,7 @@ function makeProps(): {
     jobsBySession: {},
     currentAddress: undefined,
   } as SessionListState
-  const listDirectory = vi.fn(async (): Promise<DirectoryListing> => LISTING)
+  const listDirectory = vi.fn<(path?: string, signal?: AbortSignal) => Promise<DirectoryListing>>(async () => LISTING)
   const readText = vi.fn(async (path: string): Promise<DirectoryRead> => {
     if (path.endsWith('.bin')) throw new Error('not a text file')
     return { path, text: path.endsWith('.md') ? '# 文件内容\n预览正文。' : '{"ok":true}', truncated: false }
@@ -159,7 +159,8 @@ describe('PanelRoot', () => {
   it('refresh re-reads the injected documents', () => {
     const { props } = makeProps()
     render(<PanelRoot {...props} />)
-    const reader = props.readInjectedDocs as ReturnType<typeof vi.fn>
+    const { readInjectedDocs } = props
+    const reader = readInjectedDocs as ReturnType<typeof vi.fn>
     const callsBefore = reader.mock.calls.length
     fireEvent.click(screen.getByText('刷新'))
     expect(reader.mock.calls.length).toBeGreaterThan(callsBefore)
@@ -167,8 +168,9 @@ describe('PanelRoot', () => {
 
   it('badges file instructions vs runtime context and pages older documents', async () => {
     const { props } = makeProps()
-    const reader = props.readInjectedDocs as ReturnType<typeof vi.fn>
-    const loader = props.loadOlderDocs as ReturnType<typeof vi.fn>
+    const { readInjectedDocs, loadOlderDocs } = props
+    const reader = readInjectedDocs as ReturnType<typeof vi.fn>
+    const loader = loadOlderDocs as ReturnType<typeof vi.fn>
     render(<PanelRoot {...props} />)
     expect(screen.getAllByText('指令文件').length).toBe(1)
     expect(screen.getAllByText('动态上下文').length).toBe(1)
@@ -198,6 +200,21 @@ describe('PanelRoot', () => {
     })
     expect(listDirectory).toHaveBeenCalledWith('/proj', expect.anything())
     expect(document.body.textContent).toContain('proj')
+  })
+
+  it('aborts the in-flight directory listing when the panel unmounts', async () => {
+    const { props, listDirectory } = makeProps()
+    listDirectory.mockImplementation(() => new Promise<DirectoryListing>(() => {}))
+    const view = render(<PanelRoot {...props} />)
+    fireEvent.click(screen.getByRole('tab', { name: '文件夹' }))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(listDirectory).toHaveBeenCalledWith('/proj', expect.any(AbortSignal))
+    const signal = (listDirectory.mock.calls[0] as [string, AbortSignal])[1]
+    expect(signal.aborted).toBe(false)
+    view.unmount()
+    expect(signal.aborted).toBe(true)
   })
 
   it('opens a file in the centered preview and closes it', async () => {
@@ -295,7 +312,7 @@ describe('PanelRoot', () => {
     props.useSessions = selector => selector({
       ids: [], byId: {}, current: undefined, phase: 'ready',
       subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
-    } as SessionListState)
+    })
     render(<PanelRoot {...props} />)
     expect(document.body.textContent).toContain('选择会话后显示其已注入的上下文文档。')
   })
