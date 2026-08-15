@@ -445,6 +445,24 @@ describe('PanelRoot', () => {
     expect(document.body.textContent).toContain('修改')
   })
 
+  it('frames the commit tree with its own title and refreshes both reads', async () => {
+    const { props, gitGraph, workspaceStatus } = makeProps()
+    render(<PanelRoot {...props} />)
+    fireEvent.click(screen.getByRole('tab', { name: 'Git' }))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(document.body.textContent).toContain('Git 树')
+    expect(gitGraph).toHaveBeenCalledTimes(1)
+    expect(workspaceStatus).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByLabelText('刷新 Git 视图'))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(gitGraph).toHaveBeenCalledTimes(2)
+    expect(workspaceStatus).toHaveBeenCalledTimes(2)
+  })
+
   it('opens the file diff in the centered pop-out from a commit row', async () => {
     const { props, showFileDiff } = makeProps()
     render(<PanelRoot {...props} />)
