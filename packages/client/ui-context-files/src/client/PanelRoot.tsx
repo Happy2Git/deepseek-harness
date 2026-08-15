@@ -289,6 +289,8 @@ export function PanelRoot(props: PanelRootProps): ReactNode {
               {state.tab === 'context' && (
                 <ContextDocs
                   docs={docs}
+                  filter={state.contextFilter}
+                  onFilter={actions.setContextFilter}
                   onOpenDoc={actions.openDocCenter}
                   onRefresh={() => { setDocsRev(rev => rev + 1) }}
                   hasSession={current !== undefined}

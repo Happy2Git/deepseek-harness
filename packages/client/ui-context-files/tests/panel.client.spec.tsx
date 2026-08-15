@@ -25,8 +25,8 @@ function hookOf<T>(inst: { subscribe: (fn: () => void) => () => void; getSnapsho
 }
 
 const DOCS: ContextDoc[] = [
-  { seq: 1, time: 1_000, role: 'inject', label: 'AGENTS.md', form: 'instructions', text: '# 规则\n只读工作区。' },
-  { seq: 2, time: 2_000, role: 'inject', label: 'goal', form: null, text: '当前目标:完成面板。' },
+  { seq: 1, time: 1_000, role: 'inject', label: 'AGENTS.md', form: 'instructions', text: '# 规则\n只读工作区。', active: true },
+  { seq: 2, time: 2_000, role: 'inject', label: 'goal', form: null, text: '当前目标:完成面板。', active: true },
 ]
 
 const LISTING: DirectoryListing = {
@@ -151,14 +151,43 @@ describe('PanelRoot', () => {
   it('lists the injected documents and opens one in the centered pop-out', () => {
     const { props } = makeProps()
     render(<PanelRoot {...props} />)
-    expect(document.body.textContent).toContain('已注入 2 篇')
+    expect(document.body.textContent).toContain('当前有效')
+    expect(document.body.textContent).toContain('历史流水')
     expect(document.body.textContent).toContain('AGENTS.md')
-    fireEvent.click(document.body.querySelector('li button')!)
+    fireEvent.click(screen.getByText('AGENTS.md').closest('button')!)
     const modal = document.body.querySelector('[role="dialog"][aria-label="AGENTS.md"]')
     expect(modal).not.toBeNull()
     expect(modal!.textContent).toContain('只读工作区。')
     fireEvent.click(screen.getByLabelText('关闭中部预览'))
     expect(document.body.querySelector('[role="dialog"][aria-label="AGENTS.md"]')).toBeNull()
+  })
+
+  it('splits the live window from the shadowed history', () => {
+    const { props } = makeProps()
+    ;(props.readInjectedDocs as ReturnType<typeof vi.fn>).mockReturnValue([
+      { seq: 1, time: 1_000, role: 'inject', label: 'old.md', form: 'instructions', text: '旧指令', active: false },
+      { seq: 2, time: 2_000, role: 'inject', label: 'new.md', form: 'instructions', text: '新指令', active: true },
+    ])
+    render(<PanelRoot {...props} />)
+    const active = screen.getByText('当前有效').closest('section')!
+    const history = screen.getByText('历史流水').closest('section')!
+    expect(active.textContent).toContain('new.md')
+    expect(active.textContent).not.toContain('old.md')
+    expect(history.textContent).toContain('old.md')
+    expect(history.textContent).not.toContain('new.md')
+  })
+
+  it('filters both sections by the search query', () => {
+    const { props } = makeProps()
+    ;(props.readInjectedDocs as ReturnType<typeof vi.fn>).mockReturnValue([
+      { seq: 1, time: 1_000, role: 'inject', label: 'AGENTS.md', form: 'instructions', text: '只读工作区。', active: true },
+      { seq: 2, time: 2_000, role: 'inject', label: 'skill 调用', form: null, text: '检索了某个符号', active: true },
+    ])
+    render(<PanelRoot {...props} />)
+    fireEvent.change(screen.getByLabelText('搜索注入文档'), { target: { value: '检索' } })
+    expect(document.body.textContent).toContain('匹配结果')
+    expect(document.body.textContent).toContain('skill 调用')
+    expect(document.body.textContent).not.toContain('AGENTS.md')
   })
 
   it('refresh re-reads the injected documents', () => {

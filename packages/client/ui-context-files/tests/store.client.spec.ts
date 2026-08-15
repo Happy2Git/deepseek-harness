@@ -15,6 +15,7 @@ describe('createPanelStore', () => {
     expect(store.getSnapshot()).toEqual({
       tab: 'context',
       filter: '',
+      contextFilter: '',
       expandedDirs: [],
       centerFile: null,
       centerDocSeq: null,
@@ -61,6 +62,12 @@ describe('createPanelStore', () => {
     expect(store.getSnapshot().collapsed).toBe(true)
     actions.toggleCollapsed()
     expect(store.getSnapshot().collapsed).toBe(false)
+  })
+
+  it('setContextFilter writes the injected-document search query', () => {
+    const { store, actions } = createPanelStore().create()
+    actions.setContextFilter('AGENTS')
+    expect(store.getSnapshot().contextFilter).toBe('AGENTS')
   })
 
   it('setWidth writes the expanded width', () => {
