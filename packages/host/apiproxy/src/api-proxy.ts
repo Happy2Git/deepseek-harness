@@ -627,7 +627,17 @@ async function summarizeCold(
 /** Map a browse-primitive failure onto the wire error vocabulary (unknown throws stay internal). */
 function directoryError(error: unknown): RpcError {
   if (error instanceof DirectoryPickerError) {
-    return { code: error.code, message: error.message, details: { path: error.path } }
+    switch (error.code) {
+      case 'directory-unreadable':
+      case 'directory-exists':
+      case 'directory-create-failed':
+        return { code: error.code, message: error.message, details: { path: error.path } }
+      case 'file-unreadable':
+      case 'file-not-text':
+        // No wire code remains for file reads — the core gateway dropped
+        // host.readText, so these seam codes cannot reach this path.
+        return { code: 'internal', message: error.message, details: {} }
+    }
   }
   return { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} }
 }

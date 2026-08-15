@@ -535,12 +535,12 @@ describe('createFixtureApi', () => {
     const listed = await api.host.listDirectory(req({ path: '/srv' }), new AbortController().signal)
     if (!listed.result.ok) throw new Error('list failed')
     expect(listed.result.value.crumbs).toEqual([
-      { name: '/', path: '/', hidden: false },
-      { name: 'srv', path: '/srv', hidden: false },
+      { name: '/', path: '/', hidden: false, kind: 'directory' },
+      { name: 'srv', path: '/srv', hidden: false, kind: 'directory' },
     ])
     const root = await api.host.listDirectory(req({ path: '/' }), new AbortController().signal)
     if (!root.result.ok) throw new Error('root list failed')
-    expect(root.result.value.entries).toContainEqual({ name: 'srv', path: '/srv', hidden: false })
+    expect(root.result.value.entries).toContainEqual({ name: 'srv', path: '/srv', hidden: false, kind: 'directory' })
   })
 
   it('workspace.list serves the resident account and create reuses on path collision', async () => {

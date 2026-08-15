@@ -13,6 +13,8 @@ export interface DirectoryEntry {
   path: string
   /** Hidden by the host platform's convention (dot-prefixed on POSIX); the client owns whether to show it. */
   hidden: boolean
+  /** Whether the row is enterable (directory, including a symlink to one) or a file. */
+  kind: 'directory' | 'file'
 }
 
 /** host.listDirectory response value: one directory level plus its ancestry. */
@@ -26,7 +28,7 @@ export interface DirectoryListing {
    * inclusive; every crumb is a jump target (crumb `hidden` is always false).
    */
   crumbs: DirectoryEntry[]
-  /** Direct child directories, name-sorted; symlinks to directories included. */
+  /** Direct children, name-sorted: directories (symlinks to directories included) and files. */
   entries: DirectoryEntry[]
   /** True when the backend cut `entries` at its complete-result bound (the name-sorted tail is absent). */
   truncated: boolean
