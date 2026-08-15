@@ -57,6 +57,7 @@
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-permission-presets": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-session-persistence": "workspace:^",
     "@deepseek-ai/dsh-user-approval": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   },
@@ -68,6 +69,8 @@
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-permission-presets": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-session-persistence": "workspace:^",
+    "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-user-approval": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   }
