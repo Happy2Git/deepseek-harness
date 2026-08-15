@@ -38,3 +38,10 @@ apps/web/dist/
 worktrees/
 .agents/worktrees/
 .typert-*/
+
+# Tutorial scratch plugins (docs/user/develop/basic)
+scratch-plugin/
+
+# Local publish/handoff staging (fork READMEs, screenshots, audit handoff) —
+# copied out of the tree at publish time, never committed to the fork.
+release/

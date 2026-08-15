@@ -1,0 +1,23 @@
+- region "上下文与文件面板":
+  - button "收起面板" [expanded]:
+    - img
+  - button "Session log":
+    - text: Session log
+    - img
+  - navigation:
+    - tablist "面板视图":
+      - tab "上下文"
+      - tab "文件夹" [selected]
+      - tab "Git"
+  - textbox "按名称过滤目录":
+    - /placeholder: 按名称过滤…
+  - button "折叠 {{workspace}}":
+    - img
+  - text: {{workspace}}
+  - button "复制路径 {{cwd}}":
+    - img
+  - button "打开"
+  - button "展开 panel-fixture-dir":
+    - img
+  - text: panel-fixture-dir
+  - button "打开 panel-fixture.md": panel-fixture.md

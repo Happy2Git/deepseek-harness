@@ -9,7 +9,7 @@
  * @module @deepseek-ai/dsh-host-directory-picker-browse
  */
 
-import { mkdir, opendir, stat } from 'node:fs/promises'
+import { mkdir, open, opendir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, posix, resolve, win32 } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -18,7 +18,7 @@ import {
   DirectoryPicker, DirectoryPickerError,
 } from '@deepseek-ai/dsh-host-directory-picker'
 import type {
-  DirectoryEntry, DirectoryListing, DirectoryPickerCapability,
+  DirectoryEntry, DirectoryListing, DirectoryPickerCapability, DirectoryRead,
 } from '@deepseek-ai/dsh-host-directory-picker'
 
 /**
@@ -31,7 +31,7 @@ function ancestryCrumbs(target: string): DirectoryEntry[] {
   for (;;) {
     const parent = dirname(current)
     // basename of a root is '' — label the root crumb by its full path ('/', 'C:\').
-    crumbs.unshift({ name: parent === current ? current : basename(current), path: current, hidden: false })
+    crumbs.unshift({ name: parent === current ? current : basename(current), path: current, hidden: false, kind: 'directory' })
     if (parent === current) return crumbs
     current = parent
   }
@@ -150,55 +150,63 @@ function messageOf(error: unknown): string {
 }
 
 /**
- * One listing row for a dirent, following symlinks to directories; null for
- * non-directories and broken/cyclic links (skipped silently — the browser
- * shows what can be entered, and a broken link cannot).
+ * One listing row for a dirent, following symlinks: a directory (or a symlink
+ * to one) becomes an enterable directory row, a file (or a symlink to one)
+ * becomes a file row, and broken/cyclic links or exotic targets return null
+ * (skipped silently — the browser shows what exists, and a broken link is not
+ * a row anyone can act on).
  */
-async function directoryRow(
+async function entryRow(
   parent: string, name: string, isDirectory: boolean, isSymbolicLink: boolean, signal: AbortSignal | undefined,
 ): Promise<DirectoryEntry | null> {
   const path = join(parent, name)
-  let enterable = isDirectory
-  if (!enterable && isSymbolicLink) {
+  let kind: 'directory' | 'file' = isDirectory ? 'directory' : 'file'
+  if (isSymbolicLink) {
     try {
       // The probe races the caller too: a symlink target on a stalled
       // network filesystem must not keep a departed caller's request alive.
-      enterable = (await raceAbort(stat(path), signal)).isDirectory()
+      const target = await raceAbort(stat(path), signal)
+      if (target.isDirectory()) kind = 'directory'
+      else if (target.isFile()) kind = 'file'
+      else return null
     } catch {
       /* v8 ignore next 2 -- an abort landing mid-probe needs a stalled stat; the per-candidate check in list covers the settled path. */
       if (signal?.aborted) throw asError(signal.reason)
-      // Broken or cyclic symlink: stat is the probe, failure means "not enterable".
+      // Broken or cyclic symlink: stat is the probe, failure means "no row".
       return null
     }
   }
-  if (!enterable) return null
   // POSIX hidden convention; Windows' hidden attribute is not exposed by
   // dirents (Known Limitations). The client owns whether hidden rows show.
-  return { name, path, hidden: name.startsWith('.') }
+  return { name, path, hidden: name.startsWith('.'), kind }
 }
 
 /** Validated plugin configuration. */
 export interface Config {
   /** Complete-result bound of one listing level; see {@link BrowseDirectoryPicker.Config}. */
   maxEntries: number
+  /** Complete-read bound of one text file, in bytes. */
+  maxTextBytes: number
 }
 
 /** The `ctx.directoryPicker` browse implementation (stable capability object per service life). */
 export default class BrowseDirectoryPicker extends DirectoryPicker {
   /**
    * `maxEntries` bounds the complete listing level a single `list` call may
-   * materialize and put on the wire: at most this many child-directory rows
-   * (hidden rows included), with `truncated` flagging a cut level. The
-   * default follows GitHub's web UI, which truncates directory listings at
-   * 1,000 entries.
+   * materialize and put on the wire: at most this many child rows (files and
+   * directories, hidden rows included), with `truncated` flagging a cut
+   * level. The default follows GitHub's web UI, which truncates directory
+   * listings at 1,000 entries.
    */
   static Config: z<Config> = z.object({
     maxEntries: z.natural().min(1).default(1000),
+    maxTextBytes: z.natural().min(1).default(262144),
   })
 
   private readonly browseCapability: DirectoryPickerCapability = {
     kind: 'browse',
     list: (path, signal) => this.list(path, signal),
+    readText: (path, signal) => this.readText(path, signal),
     createDirectory: (path, name) => this.createDirectory(path, name),
   }
 
@@ -227,7 +235,7 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
     // window of maxEntries + 1 candidates: memory stays bounded no matter how
     // many children the directory holds, the window keeps the name-sorted
     // head, and the +1 slot lets an in-window extra row prove the cut. A
-    // window candidate that turns out non-enterable (broken symlink) is not
+    // window candidate that turns out unrowable (broken symlink) is not
     // backfilled from beyond the window — an eviction already marks the
     // level truncated, which stays the honest answer.
     const keep = this.config.maxEntries + 1
@@ -254,9 +262,9 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
         for (;;) {
           const dirent = await raceAbort(level.read(), signal)
           if (dirent === null) break
-          // Only rows a browser could enter contend for the window; dirent
-          // says "directory" outright, a symlink needs the later stat probe.
-          if (!dirent.isDirectory() && !dirent.isSymbolicLink()) continue
+          // Rows a browser could act on contend for the window; dirent says
+          // "directory" or "file" outright, a symlink needs the later stat probe.
+          if (!dirent.isDirectory() && !dirent.isFile() && !dirent.isSymbolicLink()) continue
           const candidate = { name: dirent.name, isDirectory: dirent.isDirectory(), isSymbolicLink: dirent.isSymbolicLink() }
           if (boundedInsert(window, candidate, keep)) evicted = true
         }
@@ -283,9 +291,9 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
     let truncated = evicted
     for (const candidate of window) {
       // A caller that departed between reads and probes stops before the
-      // next probe (each probe's own await is raced inside directoryRow).
+      // next probe (each probe's own await is raced inside entryRow).
       signal?.throwIfAborted()
-      const row = await directoryRow(target, candidate.name, candidate.isDirectory, candidate.isSymbolicLink, signal)
+      const row = await entryRow(target, candidate.name, candidate.isDirectory, candidate.isSymbolicLink, signal)
       if (row === null) continue
       if (entries.length === this.config.maxEntries) {
         truncated = true
@@ -294,6 +302,57 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
       entries.push(row)
     }
     return { path: target, home, crumbs: ancestryCrumbs(target), entries, truncated }
+  }
+
+  private async readText(path: string, signal?: AbortSignal): Promise<DirectoryRead> {
+    // Same fully-qualified fence as list: never resolve a wire value against
+    // the host cwd or the current drive.
+    if (!fullyQualified(path)) {
+      throw new DirectoryPickerError('file-unreadable', path, `cannot read "${path}": not a fully qualified path`)
+    }
+    const target = resolve(path)
+    try {
+      // The handle and every read race the caller, so a stalled network
+      // filesystem cannot outlive a departed caller.
+      const opening = open(target, 'r')
+      const handle = await raceAbort(opening, signal).catch((error: unknown) => {
+        /* v8 ignore next -- a lost race can still mint a handle; close it so a departed caller leaks no descriptor. */
+        void opening.then(h => h.close().catch(swallowCloseFailure), () => {})
+        throw error
+      })
+      try {
+        // One bounded read: maxTextBytes + 1 proves the cut without holding
+        // more than the bound plus one byte in memory.
+        const buffer = Buffer.allocUnsafe(this.config.maxTextBytes + 1)
+        const { bytesRead } = await raceAbort(handle.read(buffer, 0, buffer.length, 0), signal)
+        const content = buffer.subarray(0, bytesRead)
+        // A NUL byte marks binary content: decoding it would hand the browser
+        // mojibake where a preview cannot exist.
+        if (content.includes(0)) {
+          throw new DirectoryPickerError('file-not-text', target, `${target} is not a text file`)
+        }
+        const truncated = bytesRead > this.config.maxTextBytes
+        return {
+          path: target,
+          text: content.subarray(0, this.config.maxTextBytes).toString('utf8'),
+          truncated,
+        }
+      } finally {
+        const closing = handle.close()
+        /* v8 ignore next 3 -- an abort between open and close needs a stalled read; the abandoned-close arm has no observable outcome. */
+        if (signal?.aborted) {
+          closing.catch(swallowCloseFailure)
+        } else {
+          await closing
+        }
+      }
+    } catch (error: unknown) {
+      // An abort is the caller's own reason, not an unreadable file; the
+      // binary verdict is already dressed above.
+      signal?.throwIfAborted()
+      if (error instanceof DirectoryPickerError) throw error
+      throw new DirectoryPickerError('file-unreadable', target, `cannot read ${target}: ${messageOf(error)}`)
+    }
   }
 
   private async createDirectory(path: string, name: string): Promise<string> {
