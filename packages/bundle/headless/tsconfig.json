@@ -30,6 +30,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../interaction/permission-presets"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     },
     {
