@@ -354,6 +354,30 @@ describe('image draft rail', () => {
     expect(view.queryByText('extra.txt')).toBeNull()
   })
 
+  it('counts an in-flight batch against a rapid second drop before its read settles', async () => {
+    const { view } = bench()
+    const big = (i: number) => new File(['a'.repeat(100_000)], `big-${i}.txt`, { type: 'text/plain' })
+    // First drop: 10 × 100,000 bytes — still being read when the second lands
+    // in the same synchronous tick, so the second pre-check can only see the
+    // reservation the intake made before starting the reads.
+    fireEvent.drop(document.body, {
+      dataTransfer: { types: ['Files'], files: Array.from({ length: 10 }, (_, i) => big(i)), dropEffect: 'none' },
+    })
+    // Second drop: 50,000 more bytes would total 1,050,000 — over the 1 MiB
+    // cap — so the batch is refused even though the first has not settled.
+    fireEvent.drop(document.body, {
+      dataTransfer: { types: ['Files'], files: [new File(['a'.repeat(50_000)], 'extra.txt', { type: 'text/plain' })], dropEffect: 'none' },
+    })
+    await waitFor(() => {
+      expect(view.getByRole('alert').textContent).toContain('文件总大小超过 1MB，未插入')
+    })
+    // The first batch's chips still land; the refused batch never appears.
+    await waitFor(() => {
+      expect(view.getByText('big-0.txt')).toBeTruthy()
+    })
+    expect(view.queryByText('extra.txt')).toBeNull()
+  })
+
   it('shows the projected limits in the drop overlay desc line', () => {
     const { view } = bench({
       addImages: vi.fn(() => null),

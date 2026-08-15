@@ -99,12 +99,10 @@ export function InputBar({
   // folded into the message only at submit — the input box never holds their
   // (potentially large) content.
   const [pendingFiles, setPendingFiles] = useState<readonly PendingTextFile[]>([])
-  // Pre-check reads the latest chips without re-subscribing the document-level
-  // drag/drop listeners every time a chip is added or removed.
+  // The ref is the pre-check's accounting source (settled chips plus in-flight
+  // reservations); every mutation point updates it in the same step as the
+  // state, without re-subscribing the document-level drag/drop listeners.
   const pendingFilesRef = useRef<readonly PendingTextFile[]>(pendingFiles)
-  useEffect(() => {
-    pendingFilesRef.current = pendingFiles
-  }, [pendingFiles])
   const empty = draft.trim() === '' && attachments.length === 0 && pendingFiles.length === 0
   const [preview, setPreview] = useState<ComposerAttachment | null>(null)
   const [dragActive, setDragActive] = useState(false)
@@ -485,8 +483,11 @@ export function InputBar({
   // Text-file drop intake: read bounded text files into memory and park them as
   // chips; their content folds into the message only at submit, so the input
   // box never holds a large file's body (the OS drag exposes content, not a
-  // path). Per-file, total-byte, and total-count checks run before any read;
-  // oversized or unreadable batches are announced and skipped whole.
+  // path). Per-file, total-byte, and total-count checks run before any read —
+  // against a ref that reserves each accepted batch's bytes and count while its
+  // reads are in flight, so a rapid second drop cannot slip past a first batch
+  // that has not settled yet; oversized or unreadable batches are announced and
+  // skipped whole.
   const intakeTextFiles = useCallback((files: readonly File[]): void => {
     if (files.length === 0) return
     const oversized = files.find(file => file.size > MAX_TEXT_FILE_BYTES)
@@ -495,15 +496,21 @@ export function InputBar({
       return
     }
     const batchBytes = files.reduce((sum, file) => sum + file.size, 0)
-    const heldBytes = pendingFilesRef.current.reduce((sum, file) => sum + file.size, 0)
+    const held = pendingFilesRef.current
+    const heldBytes = held.reduce((sum, file) => sum + file.size, 0)
     if (heldBytes + batchBytes > MAX_TEXT_FILES_TOTAL_BYTES) {
       showToast(t('file.totalTooLarge'))
       return
     }
-    if (pendingFilesRef.current.length + files.length > MAX_TEXT_FILES) {
+    if (held.length + files.length > MAX_TEXT_FILES) {
       showToast(t('file.tooMany'))
       return
     }
+    // Reserve the batch in the ref before the async reads, so a concurrent
+    // drop's pre-checks count it. The reservation is replaced by the readable
+    // chips (or rolled back) when the batch settles.
+    const names = new Set(files.map(file => file.name))
+    pendingFilesRef.current = [...held, ...files.map(file => ({ name: file.name, content: '', size: file.size }))]
     void Promise.all(files.map(async (file): Promise<PendingTextFile | null> => {
       try {
         const buffer = await file.arrayBuffer()
@@ -515,6 +522,7 @@ export function InputBar({
       }
     })).then((items) => {
       const valid = items.filter((item): item is PendingTextFile => item !== null)
+      pendingFilesRef.current = pendingFilesRef.current.filter(item => !names.has(item.name)).concat(valid)
       if (valid.length === 0) {
         showToast(t('file.unreadable'))
         return
@@ -525,6 +533,7 @@ export function InputBar({
 
   /** Remove one parked file chip. */
   const removePendingFile = useCallback((name: string): void => {
+    pendingFilesRef.current = pendingFilesRef.current.filter(item => item.name !== name)
     setPendingFiles(current => current.filter(item => item.name !== name))
   }, [])
 
@@ -534,6 +543,7 @@ export function InputBar({
     const fileText = pendingFiles.map(file => `\`\`\`${file.name}\n${file.content}\n\`\`\``).join('\n\n')
     const currentDraft = keyboard.snapshot.draft
     keyboard.setDraft(currentDraft === '' ? fileText : `${currentDraft}\n\n${fileText}`)
+    pendingFilesRef.current = []
     setPendingFiles([])
   }, [pendingFiles, keyboard])
 
@@ -545,7 +555,9 @@ export function InputBar({
   // keeping the native drop-text-into-textarea path. The overlay layer itself
   // is pointer-inert, so it never disturbs the enter/leave count.
   const canAcceptImages = !locked && !machineBusy && addImages !== undefined
-  const canAcceptText = !locked && !machineBusy && inputActions !== undefined
+  // The composer slot always composes the input machine (a non-optional prop),
+  // so only the lock/machine-busy states gate text intake.
+  const canAcceptText = !locked && !machineBusy
   const canAcceptDrop = canAcceptImages || canAcceptText
   useEffect(() => {
     const hasFiles = (event: globalThis.DragEvent): boolean =>
@@ -791,7 +803,7 @@ export function InputBar({
                   type="button"
                   className={css.fileChipRemove}
                   aria-label={`移除文件 ${file.name}`}
-                  onClick={() => removePendingFile(file.name)}
+                  onClick={() => { removePendingFile(file.name) }}
                 >
                   <IconCloseOutline16 size={12} />
                 </button>
