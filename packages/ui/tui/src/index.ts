@@ -89,56 +89,43 @@ function contentText(blocks: readonly ContentBlock[]): string {
 /** Truncate one tool result for the collapsed tool card. */
 const TOOL_RESULT_PREVIEW_CHARS = 240
 
-/**
- * Fold the append-only session log into one transcript string. A tool call
- * pairs with the result that follows it so the card shows both sides.
- * Recomputing from the whole log is quadratic on long resumed sessions; the
- * projection cache replaces this fold in a later phase.
- */
-function foldTranscript(events: readonly SessionEvent[]): string {
-  const lines: string[] = []
-  let lastToolCall: string | undefined
-  for (const event of events) {
-    switch (event.type) {
-      case 'user/message': {
-        if (event.data.source.kind === 'user') {
-          const text = contentText(event.data.content).trim()
-          if (text !== '') lines.push(`> ${text}`)
-        }
-        break
+/** Fold one event into transcript lines, threading the last tool-call name. */
+function foldEventLines(
+  event: SessionEvent,
+  lastToolCall: string | undefined,
+): { lines: string[]; lastToolCall: string | undefined } {
+  switch (event.type) {
+    case 'user/message': {
+      if (event.data.source.kind === 'user') {
+        const text = contentText(event.data.content).trim()
+        return text === '' ? { lines: [], lastToolCall } : { lines: [`> ${text}`], lastToolCall }
       }
-      case 'assistant/message': {
-        const text = contentText(event.data.message.content).trim()
-        if (text !== '') lines.push(text)
-        break
-      }
-      case 'tool/call': {
-        lastToolCall = event.data.name
-        lines.push(`◇ ${event.data.name}`)
-        break
-      }
-      case 'tool/result': {
-        const result = contentText(event.data.message.content).trim()
-        const preview = result.length > TOOL_RESULT_PREVIEW_CHARS
-          ? `${result.slice(0, TOOL_RESULT_PREVIEW_CHARS)}…`
-          : result
-        const label = lastToolCall === undefined ? '' : ` ${lastToolCall}`
-        if (event.data.error === undefined) {
-          lines.push(`✓${label}${preview === '' ? '' : `: ${preview}`}`)
-        } else {
-          lines.push(`✗${label} (${event.data.error.code})${preview === '' ? '' : `: ${preview}`}`)
-        }
-        break
-      }
-      case 'turn/end': {
-        if (event.data.reason.kind === 'error') lines.push(`✗ ${event.data.reason.error.message}`)
-        break
-      }
-      default:
-        break
+      return { lines: [], lastToolCall }
     }
+    case 'assistant/message': {
+      const text = contentText(event.data.message.content).trim()
+      return text === '' ? { lines: [], lastToolCall } : { lines: [text], lastToolCall }
+    }
+    case 'tool/call':
+      return { lines: [`◇ ${event.data.name}`], lastToolCall: event.data.name }
+    case 'tool/result': {
+      const result = contentText(event.data.message.content).trim()
+      const preview = result.length > TOOL_RESULT_PREVIEW_CHARS
+        ? `${result.slice(0, TOOL_RESULT_PREVIEW_CHARS)}…`
+        : result
+      const label = lastToolCall === undefined ? '' : ` ${lastToolCall}`
+      const line = event.data.error === undefined
+        ? `✓${label}${preview === '' ? '' : `: ${preview}`}`
+        : `✗${label} (${event.data.error.code})${preview === '' ? '' : `: ${preview}`}`
+      return { lines: [line], lastToolCall }
+    }
+    case 'turn/end': {
+      const line = event.data.reason.kind === 'error' ? `✗ ${event.data.reason.error.message}` : undefined
+      return line === undefined ? { lines: [], lastToolCall } : { lines: [line], lastToolCall }
+    }
+    default:
+      return { lines: [], lastToolCall }
   }
-  return lines.join('\n')
 }
 
 /** A queued human prompt the editor's next submit resolves. */
@@ -172,8 +159,8 @@ export function apply(ctx: Context): () => void {
   // Component invalidation does not schedule a redraw on its own; every
   // programmatic text change below re-requests the render explicitly.
   const setStatus = (text: string): void => { status.setText(text); tui.requestRender() }
-  const renderTranscript = (events: readonly SessionEvent[]): void => {
-    transcript.setText(foldTranscript(events))
+  const setTranscriptText = (text: string): void => {
+    transcript.setText(text)
     tui.requestRender()
   }
   const promptValues = new Map<string, string>()
@@ -299,9 +286,23 @@ export function apply(ctx: Context): () => void {
         setup,
       })
 
-    let clearSeq = 0
+    // Append-origin incremental transcript: fold only newly appended events, so
+    // a long session re-renders in O(new) instead of re-folding the whole log.
+    const transcriptLines: string[] = []
+    let lastFoldedSeq = -1
+    let lastToolCall: string | undefined
+
     const render = (): void => {
-      renderTranscript(agent.session.events.filter(event => event.seq >= clearSeq))
+      let changed = false
+      for (const event of agent.session.events) {
+        if (event.seq <= lastFoldedSeq) continue
+        const folded = foldEventLines(event, lastToolCall)
+        lastToolCall = folded.lastToolCall
+        transcriptLines.push(...folded.lines)
+        lastFoldedSeq = event.seq
+        changed = true
+      }
+      if (changed) setTranscriptText(transcriptLines.join('\n'))
       const measurement = ctx.get('tokenMeter')?.measure(agent.session)
       footerBase = `${modelSelection.current?.model ?? selection.model} · ${measurement?.totalTokens ?? 0} tokens`
       renderFooter()
@@ -357,7 +358,9 @@ export function apply(ctx: Context): () => void {
         description: 'clear the visible transcript',
         recordInput: false,
         handler: () => {
-          clearSeq = agent.session.seq
+          transcriptLines.length = 0
+          lastFoldedSeq = agent.session.seq
+          lastToolCall = undefined
           render()
           return { kind: 'success' }
         },
