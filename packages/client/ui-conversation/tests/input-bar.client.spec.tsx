@@ -5,7 +5,7 @@
 // decoration backdrop, error/notice strips, and the focus-keeping mousedown.
 
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import {
   createSnapshotStore, EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS,
@@ -297,26 +297,61 @@ describe('image draft rail', () => {
     expect(within.view.queryByRole('alert')).toBeNull()
   })
 
-  it('announces the format problem before any limit when the batch holds a non-image', () => {
-    const addImages = vi.fn(() => '仅支持 PNG、JPG、WebP、GIF 格式的图片')
-    const { view } = bench({
-      addImages,
-      imageLimits: {
-        maxImageBytes: 8,
-        maxImagesPerMessage: 1,
-        maxMessageImageBytes: 8,
-        maxImagePixels: 40_000_000,
-        mediaTypes: ['image/png'] as const,
-      },
+  it('parks a dropped text file as a chip and folds it into the send', async () => {
+    const { view, textarea, sink } = bench()
+    const file = new File(['hello\nworld'], 'notes.txt', { type: 'text/plain' })
+    fireEvent.drop(document.body, { dataTransfer: { types: ['Files'], files: [file], dropEffect: 'none' } })
+    // A chip appears; the box itself stays empty (the content parks, not pastes).
+    await waitFor(() => {
+      expect(view.getByText('notes.txt')).toBeTruthy()
     })
-    // Oversized AND over-count AND wrong type: the format rejection wins.
-    const files = [
-      new File([new ArrayBuffer(64)], 'a.pdf', { type: 'application/pdf' }),
-      new File([new ArrayBuffer(64)], 'b.pdf', { type: 'application/pdf' }),
-    ]
+    expect(textarea.value).toBe('')
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    await waitFor(() => {
+      expect(sink).toHaveBeenCalledWith('```notes.txt\nhello\nworld\n```', [], 'queue')
+    })
+  })
+
+  it('announces a refusal when a dropped file is binary', async () => {
+    const { view } = bench()
+    const file = new File([new ArrayBuffer(64)], 'a.pdf', { type: 'application/pdf' })
+    fireEvent.drop(document.body, { dataTransfer: { types: ['Files'], files: [file], dropEffect: 'none' } })
+    await waitFor(() => {
+      expect(view.getByRole('alert').textContent).toContain('无法读取文件内容，未插入')
+    })
+  })
+
+  it('refuses a drop that would exceed the total text-file count', async () => {
+    const { view, textarea } = bench()
+    const files = Array.from({ length: 21 }, (_, i) => new File(['x'], `f${i}.txt`, { type: 'text/plain' }))
     fireEvent.drop(document.body, { dataTransfer: { types: ['Files'], files, dropEffect: 'none' } })
-    expect(addImages).toHaveBeenCalledWith(files)
-    expect(view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
+    await waitFor(() => {
+      expect(view.getByRole('alert').textContent).toContain('一次最多添加 20 个文件，未插入')
+    })
+    expect(textarea.value).toBe('')
+    expect(view.queryByText('f0.txt')).toBeNull()
+  })
+
+  it('keeps existing chips and refuses a drop that would exceed the total text-file bytes', async () => {
+    const { view } = bench()
+    const big = (i: number) => new File(['a'.repeat(100_000)], `big-${i}.txt`, { type: 'text/plain' })
+    // 10 × 100,000 = 1,000,000 bytes; below the 1 MiB cap.
+    fireEvent.drop(document.body, {
+      dataTransfer: { types: ['Files'], files: Array.from({ length: 10 }, (_, i) => big(i)), dropEffect: 'none' },
+    })
+    await waitFor(() => {
+      expect(view.getByText('big-0.txt')).toBeTruthy()
+    })
+    // Adding another 50,000 bytes would total 1,050,000 bytes; the new batch
+    // is refused and the existing chips stay.
+    fireEvent.drop(document.body, {
+      dataTransfer: { types: ['Files'], files: [new File(['a'.repeat(50_000)], 'extra.txt', { type: 'text/plain' })], dropEffect: 'none' },
+    })
+    await waitFor(() => {
+      expect(view.getByRole('alert').textContent).toContain('文件总大小超过 1MB，未插入')
+    })
+    expect(view.getByText('big-0.txt')).toBeTruthy()
+    expect(view.queryByText('extra.txt')).toBeNull()
   })
 
   it('shows the projected limits in the drop overlay desc line', () => {

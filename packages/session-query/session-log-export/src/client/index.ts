@@ -3,7 +3,8 @@
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-commands/client'
-import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only: pulls the panel's `panel.header.utilities` SlotMap declaration.
+import type {} from '@deepseek-ai/dsh-client-ui-context-files/client'
 import { SessionLogDownloadController } from './controller.ts'
 import type { SessionLogDownloadDialogInjected } from './Dialog.tsx'
 import { SessionLogDownloadHeaderAction } from './HeaderAction.tsx'
@@ -26,7 +27,9 @@ export type { SessionLogDownloadEntry, SessionLogDownloadState } from './control
 export const inject = ['slots', 'locale']
 
 /**
- * Provide the download controller and mount its modal into the Session Header.
+ * Provide the download controller and mount its modal into the context-files
+ * panel's header (the panel overlays the conversation header, so the download
+ * action lives on the panel surface instead of the covered one).
  * @param ctx - browser context carrying slots and locale services.
  */
 export function apply(ctx: ClientContext): void {
@@ -37,8 +40,8 @@ export function apply(ctx: ClientContext): void {
   ctx.on('command/executed', (sessionId, commandName, result) => {
     if (commandName === 'export' && result.kind === 'success') void controller.download(sessionId)
   })
-  ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
-    name: 'conversation.session.header.utilities',
+  ctx.slots.inject('panel.header.utilities', () => ctx.slots.register({
+    name: 'panel.header.utilities',
     id: 'session-log-download',
     locale: NS,
     inject: (): SessionLogDownloadDialogInjected => ({

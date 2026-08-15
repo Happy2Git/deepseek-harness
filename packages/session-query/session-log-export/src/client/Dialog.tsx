@@ -11,10 +11,16 @@ export interface SessionLogDownloadDialogInjected {
   dismiss: (sessionId: SessionId) => void
 }
 
-export type SessionLogDownloadDialogProps =
-  PropsRuntime<'conversation.session.header.utilities'>
+/** The framework shares of the panel-header contribution (no session id — root scope). */
+export type SessionLogDownloadFrameworkProps =
+  PropsRuntime<'panel.header.utilities'>
   & PropsLocale<typeof NS>
   & InjectFace<SessionLogDownloadDialogInjected>
+
+/** The dialog's props: the framework shares plus the caller-supplied session id. */
+export type SessionLogDownloadDialogProps =
+  SessionLogDownloadFrameworkProps
+  & { sessionId: SessionId }
 
 /**
  * Modal shared by the Session Header button and this browser's `/export` command.

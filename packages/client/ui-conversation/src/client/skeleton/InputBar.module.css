@@ -131,6 +131,56 @@
   padding: 4px 12px 0;
 }
 
+/* Dropped text-file chips: parked above the input, folded into the message
+   at submit (never into the box itself). */
+.fileChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 12px 0;
+}
+
+.fileChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  height: 24px;
+  padding: 0 6px 0 10px;
+  border-radius: 6px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.fileChipName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileChipRemove {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  padding: 0;
+}
+
+.fileChipRemove:hover {
+  background: var(--dsw-alias-interactive-bg-active, var(--dsw-alias-interactive-bg-hover));
+  color: var(--dsw-alias-label-primary);
+}
+
 /* Floating overlay anchor (menu / popupSelect shell): entries position
    themselves against the card (bottom: 100% + gap); closed entries render null. */
 .overlayAnchor {
