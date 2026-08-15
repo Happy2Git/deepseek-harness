@@ -93,6 +93,17 @@ describe('createPanelStore', () => {
     expect(second.store.getSnapshot()).toMatchObject({ tab: 'git', width: 340, collapsed: true })
   })
 
+  it('fills missing fields when rehydrating an older persisted shape', () => {
+    localStorage.setItem('dsh-context-files.panel', JSON.stringify({
+      tab: 'git', filter: '', expandedDirs: [], centerFile: null, centerDocSeq: null, collapsed: true, width: 320,
+    }))
+    const { store } = createPanelStore().create()
+    expect(store.getSnapshot()).toMatchObject({
+      tab: 'git', collapsed: true, width: 320,
+      contextFilter: '', centerDiff: null,
+    })
+  })
+
   it('clears a rehydrated centered pop-out before any render can show it', () => {
     const first = createPanelStore().create()
     first.actions.openCenter('/proj/notes.md')
