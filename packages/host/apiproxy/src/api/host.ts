@@ -4,35 +4,27 @@
  */
 
 import type { RpcRequest, RpcResponse } from './rpc.ts'
+import type {
+  DirectoryEntry as BrowseDirectoryEntry,
+  DirectoryListing as BrowseDirectoryListing,
+} from '@deepseek-ai/dsh-host-directory-picker'
 
-/** One directory row of a listing: a child entry or a breadcrumb ancestor. */
-export interface DirectoryEntry {
-  /** Base name shown in a browser row (a root crumb carries its full path). */
-  name: string
-  /** Absolute host path — the client never joins path segments itself. */
-  path: string
-  /** Hidden by the host platform's convention (dot-prefixed on POSIX); the client owns whether to show it. */
-  hidden: boolean
-  /** Whether the row is enterable (directory, including a symlink to one) or a file. */
-  kind: 'directory' | 'file'
-}
+/**
+ * One directory row of a listing: a child entry or a breadcrumb ancestor.
+ *
+ * Type-only re-export of the browse seam's canonical `DirectoryEntry`: the
+ * seam (`@deepseek-ai/dsh-host-directory-picker`) is the single home of the
+ * wire row, so the client-safe copy here cannot drift from it.
+ */
+export type DirectoryEntry = BrowseDirectoryEntry
 
-/** host.listDirectory response value: one directory level plus its ancestry. */
-export interface DirectoryListing {
-  /** Absolute path of the listed directory. */
-  path: string
-  /** The host account's home directory (breadcrumb "Home" rooting). */
-  home: string
-  /**
-   * Ancestor chain from the filesystem root to the listed directory
-   * inclusive; every crumb is a jump target (crumb `hidden` is always false).
-   */
-  crumbs: DirectoryEntry[]
-  /** Direct children, name-sorted: directories (symlinks to directories included) and files. */
-  entries: DirectoryEntry[]
-  /** True when the backend cut `entries` at its complete-result bound (the name-sorted tail is absent). */
-  truncated: boolean
-}
+/**
+ * host.listDirectory response value: one directory level plus its ancestry.
+ *
+ * Type-only re-export of the browse seam's canonical `DirectoryListing`; see
+ * `DirectoryEntry` for why the seam types are re-exported rather than copied.
+ */
+export type DirectoryListing = BrowseDirectoryListing
 
 /** Host-level unary methods. */
 export interface HostApi {
