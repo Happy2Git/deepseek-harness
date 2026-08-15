@@ -47,6 +47,7 @@ export {
   MAX_WRITE_BATCH_DELAY_MS,
   PersistenceCoordinator,
   SessionFormatUnsupportedError,
+  SessionNotFoundError,
   SessionPersistenceCorruptionError,
   sessionFormatVersionRefusal,
 } from './coordinator.ts'
