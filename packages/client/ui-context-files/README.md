@@ -26,5 +26,5 @@ Independent: the panel contributes nothing to any model request prefix, so mount
 ## Known Limitations and Deferred Work
 
 - **Text files only** — the files tab previews `.md`/`.markdown`/`.txt`; every other file renders as an inert name (no binary or unknown-format read exists). Reads are bounded at the backend's configured maximum, reported with a truncation note.
-- **Manual refresh** — the context tab re-reads on session switch and on the explicit refresh control; mid-turn injections appear after the next refresh rather than live.
+- **Window-scoped projection** — the context tab re-projects live (session switch, stream advance, or the explicit refresh control), but only over the loaded history window; older documents join after paging.
 - **Presentation only** — clicking a directory opens it in the OS file manager; the panel never writes files.
