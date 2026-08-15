@@ -117,15 +117,28 @@ export function PanelRoot(props: PanelRootProps): ReactNode {
   const resizeBase = useRef(280)
   const resizeFrame = useRef<number | null>(null)
 
+  // Narrow viewports auto-collapse the panel to its rail: the expanded column
+  // would crowd out the conversation, and the overlay must not block pointer
+  // input, so only the rail stays. The user's expanded preference is preserved
+  // in the store and restored when the viewport widens again.
+  const [narrow, setNarrow] = useState(() => matchMedia('(max-width: 720px)').matches)
+  useEffect(() => {
+    const query = matchMedia('(max-width: 720px)')
+    const onChange = (event: MediaQueryListEvent): void => { setNarrow(event.matches) }
+    query.addEventListener('change', onChange)
+    return () => { query.removeEventListener('change', onChange) }
+  }, [])
+  const collapsed = narrow || state.collapsed
+
   // Publish the panel's occupied width onto the document root so the
   // conversation column (a sibling subtree) can inset itself and stay clear of
   // this overlay instead of sliding beneath it.
   useEffect(() => {
-    document.documentElement.style.setProperty('--dsh-context-panel-width', state.collapsed ? '0px' : `${state.width}px`)
+    document.documentElement.style.setProperty('--dsh-context-panel-width', collapsed ? '0px' : `${state.width}px`)
     return () => {
       document.documentElement.style.removeProperty('--dsh-context-panel-width')
     }
-  }, [state.collapsed, state.width])
+  }, [collapsed, state.width])
 
   // Left-edge resize: dragging left widens the panel (its left edge follows the
   // pointer), dragging right narrows it, clamped to the bounds above.
@@ -187,12 +200,12 @@ export function PanelRoot(props: PanelRootProps): ReactNode {
         return doc !== null ? <CenterDocPreview doc={doc} onClose={actions.closeCenter} /> : null
       })()}
       <section
-        className={clsx(css.panel, state.collapsed && css.collapsed)}
-        style={state.collapsed ? undefined : { width: state.width }}
+        className={clsx(css.panel, collapsed && css.collapsed)}
+        style={collapsed ? undefined : { width: state.width }}
         data-resizing={resizing || undefined}
         aria-label="上下文与文件面板"
       >
-        {!state.collapsed && (
+        {!collapsed && (
           <div
             className={css.resizeHandle}
             aria-hidden="true"
@@ -202,16 +215,18 @@ export function PanelRoot(props: PanelRootProps): ReactNode {
             onPointerCancel={onResizeEnd}
           />
         )}
-        {state.collapsed ? (
-          <button
-            type="button"
-            className={css.railToggle}
-            aria-label="展开面板"
-            aria-expanded="false"
-            onClick={actions.toggleCollapsed}
-          >
-            <IconPanelLeftOutline16 className={css.railToggleGlyph} />
-          </button>
+        {collapsed ? (
+          narrow ? null : (
+            <button
+              type="button"
+              className={css.railToggle}
+              aria-label="展开面板"
+              aria-expanded="false"
+              onClick={actions.toggleCollapsed}
+            >
+              <IconPanelLeftOutline16 className={css.railToggleGlyph} />
+            </button>
+          )
         ) : (
           <>
             <header className={css.headerRow}>

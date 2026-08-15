@@ -112,6 +112,15 @@ function makeProps(): {
 
 afterEach(() => { cleanup() })
 
+// jsdom ships no matchMedia; the panel reads it once for the narrow-viewport
+// auto-collapse. Stub a wide viewport (no auto-collapse) with inert listeners.
+vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
+  matches: false,
+  media: query,
+  addEventListener: () => {},
+  removeEventListener: () => {},
+}) as unknown as MediaQueryList))
+
 describe('PanelRoot', () => {
   it('renders the persistent panel with both view tabs', () => {
     const { props } = makeProps()
