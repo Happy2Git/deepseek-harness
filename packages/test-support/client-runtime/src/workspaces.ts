@@ -128,9 +128,9 @@ export class TestWorkspaces implements IWorkspaces {
       path: '/home/test',
       home: '/home/test',
       crumbs: [
-        { name: '/', path: '/', hidden: false },
-        { name: 'home', path: '/home', hidden: false },
-        { name: 'test', path: '/home/test', hidden: false },
+        { name: '/', path: '/', hidden: false, kind: 'directory' },
+        { name: 'home', path: '/home', hidden: false, kind: 'directory' },
+        { name: 'test', path: '/home/test', hidden: false, kind: 'directory' },
       ],
       entries: [],
       truncated: false,

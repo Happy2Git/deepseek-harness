@@ -332,7 +332,7 @@ describe('WorkspaceRuntime', () => {
     const ctx = new Context()
     const api = new FakeApiClient()
     const workspaces = new WorkspaceRuntime(ctx, api, new SessionRuntime(ctx, api, fakeRemote()))
-    const listing = { path: '/home/u', home: '/home/u', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [{ name: 'p', path: '/home/u/p', hidden: false }], truncated: false }
+    const listing = { path: '/home/u', home: '/home/u', crumbs: [{ name: '/', path: '/', hidden: false, kind: 'directory' as const }], entries: [{ name: 'p', path: '/home/u/p', hidden: false, kind: 'directory' as const }], truncated: false }
     api.onListDirectory = () => Promise.resolve(ok(listing))
     await expect(workspaces.listDirectory()).resolves.toEqual(listing)
     await expect(workspaces.listDirectory('/home/u')).resolves.toEqual(listing)
