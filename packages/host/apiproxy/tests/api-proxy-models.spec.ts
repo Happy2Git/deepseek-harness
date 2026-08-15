@@ -497,4 +497,54 @@ describe('Web session model selection', () => {
       .not.toContain('deleted-gateway/deleted-model')
     await ctx.fiber.dispose()
   })
+
+  it('imageInput reports the session model capability, or null when the route is unknown or unresolvable', async () => {
+    // No declared modalities: unknown capability, answered as null.
+    const { ctx, sessionId } = await harness({ provider: 'deepseek-official', model: 'deepseek-chat' })
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+    expect(expectValue(await api.sessions.imageInput(request({ sessionId })))).toBeNull()
+    await ctx.fiber.dispose()
+  })
+
+  it('imageInput answers true and false from declared input modalities', async () => {
+    const declare = (ctx: Context, name: string, modalities: readonly ('text' | 'image')[]): void => {
+      ctx.llm.registerAdapter([name], new class extends CatalogAdapter {
+        override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+          return Promise.resolve({ provider, id: model, name: model, inputModalities: modalities })
+        }
+      }(name, []))
+    }
+    const imageCapable = await harness()
+    declare(imageCapable.ctx, 'vision', ['text', 'image'])
+    const visionApi = createApiProxy(imageCapable.ctx, {
+      defaultModelSelection: () => ({ provider: 'vision', model: 'see' }),
+      cwd: '/tmp',
+    })
+    expect(expectValue(await visionApi.sessions.imageInput(request({ sessionId: imageCapable.sessionId })))).toBe(true)
+
+    const textOnly = await harness()
+    declare(textOnly.ctx, 'plain', ['text'])
+    const plainApi = createApiProxy(textOnly.ctx, {
+      defaultModelSelection: () => ({ provider: 'plain', model: 'read' }),
+      cwd: '/tmp',
+    })
+    expect(expectValue(await plainApi.sessions.imageInput(request({ sessionId: textOnly.sessionId })))).toBe(false)
+    await imageCapable.ctx.fiber.dispose()
+    await textOnly.ctx.fiber.dispose()
+  })
+
+  it('imageInput fails closed to null when the route throws', async () => {
+    // The metadata-broken adapter rejects resolveModel, which the handler
+    // answers as an unknown capability instead of failing the drop path.
+    const { ctx, sessionId } = await harness()
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'metadata-broken', model: 'listed' }),
+      cwd: '/tmp',
+    })
+    expect(expectValue(await api.sessions.imageInput(request({ sessionId })))).toBeNull()
+    await ctx.fiber.dispose()
+  })
 })

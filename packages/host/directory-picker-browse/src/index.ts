@@ -18,7 +18,7 @@ import {
   DirectoryPicker, DirectoryPickerError,
 } from '@deepseek-ai/dsh-host-directory-picker'
 import type {
-  DirectoryEntry, DirectoryListing, DirectoryPickerCapability, DirectoryRead,
+  DirectoryEntry, DirectoryImageRead, DirectoryListing, DirectoryPickerCapability, DirectoryRead,
 } from '@deepseek-ai/dsh-host-directory-picker'
 
 /**
@@ -197,6 +197,8 @@ export interface Config {
   maxEntries: number
   /** Complete-read bound of one text file, in bytes. */
   maxTextBytes: number
+  /** Fail-closed read bound of one image file, in bytes (never cut; past it the read refuses). */
+  maxImageBytes: number
 }
 
 /** The `ctx.directoryPicker` browse implementation (stable capability object per service life). */
@@ -206,17 +208,22 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
    * materialize and put on the wire: at most this many child rows (files and
    * directories, hidden rows included), with `truncated` flagging a cut
    * level. The default follows GitHub's web UI, which truncates directory
-   * listings at 1,000 entries.
+   * listings at 1,000 entries. `maxImageBytes` defaults above the attachment
+   * admission default (5 MiB) because the attachment limit is the
+   * authoritative per-file bound; this transport cap only fails closed when
+   * no attachment policy is composed.
    */
   static Config: z<Config> = z.object({
     maxEntries: z.natural().min(1).default(1000),
     maxTextBytes: z.natural().min(1).default(262144),
+    maxImageBytes: z.natural().min(1).default(8 * 1024 * 1024),
   })
 
   private readonly browseCapability: DirectoryPickerCapability = {
     kind: 'browse',
     list: (path, signal) => this.list(path, signal),
     readText: (path, signal) => this.readText(path, signal),
+    readImage: (path, signal) => this.readImage(path, signal),
     createDirectory: (path, name) => this.createDirectory(path, name),
   }
 
@@ -373,6 +380,48 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
     } catch (error: unknown) {
       // An abort is the caller's own reason, not an unreadable file; the
       // binary verdict is already dressed above.
+      signal?.throwIfAborted()
+      if (error instanceof DirectoryPickerError) throw error
+      throw new DirectoryPickerError('file-unreadable', target, `cannot read ${target}: ${messageOf(error)}`)
+    }
+  }
+
+  private async readImage(path: string, signal?: AbortSignal): Promise<DirectoryImageRead> {
+    // Same fully-qualified fence as readText: never resolve a wire value
+    // against the host cwd or the current drive.
+    if (!fullyQualified(path)) {
+      throw new DirectoryPickerError('file-unreadable', path, `cannot read "${path}": not a fully qualified path`)
+    }
+    const target = resolve(path)
+    try {
+      // Same handle/read discipline as readText: every await races the
+      // caller, and one bounded read of maxImageBytes + 1 proves an
+      // oversized file without holding more than the bound plus one byte.
+      const opening = open(target, 'r')
+      const handle = await raceAbort(opening, signal).catch((error: unknown) => {
+        /* v8 ignore next -- a lost race can still mint a handle; close it so a departed caller leaks no descriptor. */
+        void opening.then(h => h.close().catch(swallowCloseFailure), () => {})
+        throw error
+      })
+      try {
+        const buffer = Buffer.allocUnsafe(this.config.maxImageBytes + 1)
+        const { bytesRead } = await raceAbort(handle.read(buffer, 0, buffer.length, 0), signal)
+        if (bytesRead > this.config.maxImageBytes) {
+          throw new DirectoryPickerError('file-too-large', target, `${target} exceeds the image byte bound`)
+        }
+        return { path: target, data: new Uint8Array(buffer.subarray(0, bytesRead)) }
+      } finally {
+        const closing = handle.close()
+        /* v8 ignore next 3 -- an abort between open and close needs a stalled read; the abandoned-close arm has no observable outcome. */
+        if (signal?.aborted) {
+          closing.catch(swallowCloseFailure)
+        } else {
+          await closing
+        }
+      }
+    } catch (error: unknown) {
+      // An abort is the caller's own reason, not an unreadable file; the
+      // oversized verdict is already dressed above.
       signal?.throwIfAborted()
       if (error instanceof DirectoryPickerError) throw error
       throw new DirectoryPickerError('file-unreadable', target, `cannot read ${target}: ${messageOf(error)}`)

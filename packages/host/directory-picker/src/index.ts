@@ -89,6 +89,18 @@ export interface DirectoryPickerBrowseCapability {
    */
   readText(path: string, signal?: AbortSignal): Promise<DirectoryRead>
   /**
+   * Read one file's raw bytes for image intake, bounded by the backend's
+   * configured maximum.
+   * @param path - absolute file path.
+   * @param signal - caller lifetime; abort stops the read and rejects with the
+   * abort reason.
+   * @returns the bounded raw bytes.
+   * @throws {DirectoryPickerError} `file-unreadable` when the target is not fully
+   * qualified, is not a readable file, or any other read failure; `file-too-large`
+   * when the file exceeds the backend's byte bound.
+   */
+  readImage(path: string, signal?: AbortSignal): Promise<DirectoryImageRead>
+  /**
    * Create one child directory under an existing parent.
    * @param path - absolute existing parent directory.
    * @param name - single non-blank path segment (no separators, not `.`/`..`).
@@ -109,6 +121,14 @@ export interface DirectoryRead {
   truncated: boolean
 }
 
+/** Bounded raw read of one file for image intake, as a browse backend reports it. */
+export interface DirectoryImageRead {
+  /** Absolute path of the read file. */
+  path: string
+  /** Exact raw bytes (never cut; the read fails closed past the bound). */
+  data: Uint8Array
+}
+
 /**
  * Merge-extensible registry of interaction shapes keyed by capability kind: a
  * new backend declaration-merges its shape here (the entry's `kind` literal
@@ -123,7 +143,7 @@ export interface DirectoryPickerCapabilities {
 export type DirectoryPickerCapability = DirectoryPickerCapabilities[keyof DirectoryPickerCapabilities]
 
 /** Closed failure vocabulary of the browse primitives (mirrored onto the wire by consumers). */
-export type DirectoryPickerErrorCode = 'directory-unreadable' | 'directory-exists' | 'directory-create-failed' | 'file-unreadable' | 'file-not-text'
+export type DirectoryPickerErrorCode = 'directory-unreadable' | 'directory-exists' | 'directory-create-failed' | 'file-unreadable' | 'file-not-text' | 'file-too-large'
 
 /** Typed failure thrown by browse primitives so consumers can map business codes without string matching. */
 export class DirectoryPickerError extends Error {

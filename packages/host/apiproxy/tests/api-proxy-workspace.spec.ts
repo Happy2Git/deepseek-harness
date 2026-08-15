@@ -178,6 +178,7 @@ const BROWSE_STUB: DirectoryPickerCapability = {
     return `${path}/${name}`
   },
   readText: async path => ({ path, text: 'wire text', truncated: false }),
+  readImage: async path => ({ path, data: new Uint8Array() }),
 }
 
 describe('host.listDirectory / host.createDirectory', () => {
@@ -212,6 +213,7 @@ describe('host.listDirectory / host.createDirectory', () => {
       }),
       createDirectory: async () => '/never',
       readText: async path => ({ path, text: '', truncated: false }),
+      readImage: async path => ({ path, data: new Uint8Array() }),
     })
     const abort = new AbortController()
     const pending = api.host.listDirectory(request({}), abort.signal)

@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-host-directory-routes",
-  "description": "Plugin-owned HTTP routes for the context-files panel's directory browsing (list/read/open) over ctx.directoryPicker",
+  "description": "Plugin-owned HTTP routes for the context-files panel directory browsing (list/read/open/read-image) over ctx.directoryPicker",
   "version": "0.1.0-rc.5",
   "publishConfig": {
     "access": "public"
@@ -38,12 +38,14 @@
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-host-directory-picker": "workspace:^",
-    "@deepseek-ai/dsh-host-webserver": "workspace:^"
+    "@deepseek-ai/dsh-host-webserver": "workspace:^",
+    "@deepseek-ai/dsh-attachment": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-host-directory-picker": "workspace:^",
-    "@deepseek-ai/dsh-host-webserver": "workspace:^"
+    "@deepseek-ai/dsh-host-webserver": "workspace:^",
+    "@deepseek-ai/dsh-attachment": "workspace:^"
   }
 }

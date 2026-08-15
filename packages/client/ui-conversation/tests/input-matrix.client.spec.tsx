@@ -51,6 +51,8 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
     inputActions: shell.actions,
     keyboard: shell,
     addImages: () => null,
+    readImageByPath: () => Promise.resolve({ ok: false, status: 500 }),
+    sessionImageInput: () => Promise.resolve(false),
     removeImage: () => {},
     draftImages: () => [],
     resolveSubmitMode: () => 'queue',

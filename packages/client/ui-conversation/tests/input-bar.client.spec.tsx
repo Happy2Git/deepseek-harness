@@ -86,6 +86,10 @@ interface BenchOptions {
   rightItems?: React.ReactNode
   attachments?: readonly ComposerAttachment[]
   addImages?: (files: readonly File[]) => string | null
+  /** The panel-path image read stub (default: a failed read). */
+  readImageByPath?: InputBarProps['readImageByPath']
+  /** The session image-capability probe stub (default: not capable). */
+  sessionImageInput?: InputBarProps['sessionImageInput']
   commandMenuOpen?: boolean
   busyEnter?: 'queue' | 'steer'
   toggleCommandMenu?: (selection: { start: number; end: number }) => void
@@ -161,6 +165,8 @@ function bench(over?: BenchOptions) {
     inputActions: shell.actions,
     keyboard: shell,
     addImages: over?.addImages ?? (() => null),
+    readImageByPath: over?.readImageByPath ?? (() => Promise.resolve({ ok: false, status: 500 })),
+    sessionImageInput: over?.sessionImageInput ?? (() => Promise.resolve(false)),
     removeImage,
     draftImages: ids => ids.flatMap((id) => {
       const attachment = over?.attachments?.find(candidate => candidate.id === id)
@@ -1381,5 +1387,98 @@ describe('command launcher chrome and control seats', () => {
     cleanup()
     const live = bench({ running: true, permissions })
     expect((live.view.getByLabelText(/^访问模式/) as HTMLButtonElement).disabled).toBe(false)
+  })
+})
+
+describe('panel path drag intake', () => {
+  const PANEL_PATH_MIME = 'application/x-dsh-path'
+  const panelDrop = (path: string) => {
+    fireEvent.drop(document.body, {
+      dataTransfer: {
+        types: [PANEL_PATH_MIME],
+        files: [],
+        dropEffect: 'none',
+        getData: (type: string) => type === PANEL_PATH_MIME ? path : '',
+      },
+    })
+  }
+  const base64 = (bytes: number[]): string => btoa(String.fromCharCode(...bytes))
+
+  it('a not-image-capable session folds the path sentence into the draft without a read', async () => {
+    const readImageByPath = vi.fn(() => Promise.resolve({ ok: true as const, data: base64([1]), mediaType: 'image/png' }))
+    const addImages = vi.fn<(files: readonly File[]) => string | null>(() => null)
+    const { shell } = bench({ sessionImageInput: () => Promise.resolve(false), readImageByPath, addImages })
+    panelDrop('/proj/shot.png')
+    await waitFor(() => {
+      expect(shell.snapshot.draft).toBe('已拖入图片 /proj/shot.png。')
+    })
+    expect(readImageByPath).not.toHaveBeenCalled()
+    expect(addImages).not.toHaveBeenCalled()
+  })
+
+  it('an image-capable session attaches the route bytes and adds the attached sentence', async () => {
+    let attached: File | undefined
+    const addImages = vi.fn<(files: readonly File[]) => string | null>((files) => {
+      attached = files[0]
+      return null
+    })
+    const { shell } = bench({
+      sessionImageInput: () => Promise.resolve(true),
+      readImageByPath: () => Promise.resolve({ ok: true, data: base64([1, 2, 3]), mediaType: 'image/png' }),
+      addImages,
+    })
+    panelDrop('/proj/deep/shot.png')
+    await waitFor(() => {
+      expect(shell.snapshot.draft).toBe('已拖入图片 /proj/deep/shot.png，图片内容已附在本条消息中。')
+    })
+    expect(addImages).toHaveBeenCalledTimes(1)
+    expect(attached).toBeDefined()
+    const file = attached as File
+    expect(file.name).toBe('shot.png')
+    expect(file.type).toBe('image/png')
+    await expect(file.arrayBuffer()).resolves.toEqual(Uint8Array.of(1, 2, 3).buffer)
+  })
+
+  it('an oversized read announces the per-file limit and adds nothing', async () => {
+    const limits = {
+      maxImageBytes: 1024 * 1024,
+      maxImagesPerMessage: 2,
+      maxMessageImageBytes: 2 * 1024 * 1024,
+      maxImagePixels: 40_000_000,
+      mediaTypes: ['image/png'] as const,
+    }
+    const { view, shell } = bench({
+      imageLimits: limits,
+      sessionImageInput: () => Promise.resolve(true),
+      readImageByPath: () => Promise.resolve({ ok: false, status: 413 }),
+    })
+    panelDrop('/proj/big.png')
+    await waitFor(() => {
+      expect(view.getByRole('alert').textContent).toContain('单张图片不能超过 1MB')
+    })
+    expect(shell.snapshot.draft).toBe('')
+  })
+
+  it('an unreadable file announces the read failure and adds nothing', async () => {
+    const { view, shell } = bench({
+      sessionImageInput: () => Promise.resolve(true),
+      readImageByPath: () => Promise.resolve({ ok: false, status: 415 }),
+    })
+    panelDrop('/proj/moved.png')
+    await waitFor(() => {
+      expect(view.getByRole('alert').textContent).toContain('图片读取失败')
+    })
+    expect(shell.snapshot.draft).toBe('')
+  })
+
+  it('a transport failure degrades to the path sentence instead of failing the drop', async () => {
+    const { shell } = bench({
+      sessionImageInput: () => Promise.reject(new Error('rpc offline')),
+      readImageByPath: () => Promise.resolve({ ok: false, status: 500 }),
+    })
+    panelDrop('/proj/shot.png')
+    await waitFor(() => {
+      expect(shell.snapshot.draft).toBe('已拖入图片 /proj/shot.png。')
+    })
   })
 })

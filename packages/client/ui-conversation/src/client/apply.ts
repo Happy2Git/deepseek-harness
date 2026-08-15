@@ -292,6 +292,8 @@ export function apply(ctx: Context): void {
           addImages: undefined,
           removeImage: undefined,
           draftImages: undefined,
+          readImageByPath: undefined,
+          sessionImageInput: undefined,
           resolveSubmitMode: (running, gesture, steeringAvailable) =>
             submissionPolicy.resolve(running, gesture, steeringAvailable),
           toggleCommandMenu: undefined,
@@ -350,6 +352,35 @@ export function apply(ctx: Context): void {
           if (session === undefined) return false
           const result = await session.command(line)
           return result.ok && result.value.matched
+        },
+        readImageByPath: async (path) => {
+          const response = await fetch('/dir/read-image', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path }),
+          })
+          if (!response.ok) return { ok: false, status: response.status }
+          const body = await response.json() as { data?: unknown; mediaType?: unknown }
+          if (typeof body.data !== 'string' || typeof body.mediaType !== 'string') {
+            return { ok: false, status: response.status }
+          }
+          return { ok: true, data: body.data, mediaType: body.mediaType }
+        },
+        sessionImageInput: async () => {
+          // Structural slice of the connection's sessions RPC (this package
+          // carries no api-remotes dependency); the host answers fail-closed.
+          const connection = ctx.get('connection') as {
+            api?: {
+              sessions: {
+                imageInput(request: { sessionId: SessionId }): Promise<{
+                  result: { ok: true; value: boolean | null } | { ok: false }
+                }>
+              }
+            }
+          } | undefined
+          if (connection?.api === undefined) return null
+          const { result } = await connection.api.sessions.imageInput({ sessionId })
+          return result.ok ? result.value : null
         },
         hooks: {
           notices: shell.notices,

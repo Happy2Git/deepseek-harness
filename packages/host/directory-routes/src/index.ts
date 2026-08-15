@@ -2,9 +2,10 @@
  * Plugin-owned HTTP routes for the context-files panel's directory browsing.
  * The browser panel cannot reach `ctx.directoryPicker` directly, and the core
  * API gateway is a closed contract, so this plugin registers its own routes
- * (`/dir/list`, `/dir/read-text`, `/dir/open-path`) over `ctx.webServer` and
- * answers them from the composed `ctx.directoryPicker` browse capability. A
- * third-party panel therefore carries its transport with it.
+ * (`/dir/list`, `/dir/read-text`, `/dir/read-image`, `/dir/open-path`) over
+ * `ctx.webServer` and answers them from the composed `ctx.directoryPicker`
+ * browse capability. A third-party panel therefore carries its transport
+ * with it.
  * @module @deepseek-ai/dsh-host-directory-routes
  */
 
@@ -13,6 +14,8 @@ import { isAbsolute as isAbsoluteWin32 } from 'node:path/win32'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { DirectoryPickerBrowseCapability } from '@deepseek-ai/dsh-host-directory-picker'
+// The attachment import also carries the `ctx.attachments` Context merge.
+import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { runNativeCommand, type NativeCommandRunner } from '@deepseek-ai/dsh-native-command'
 
@@ -81,6 +84,20 @@ function requestSignal(res: ServerResponse): AbortSignal {
     if (!res.writableEnded) controller.abort(new Error('client disconnected'))
   })
   return controller.signal
+}
+
+/**
+ * Match encoded raster bytes against the fixed image format set: the actual
+ * header, never a filename extension (a renamed file's extension lies, its
+ * magic bytes do not). Unknown content has no image intake path.
+ */
+function sniffImageMediaType(data: Uint8Array): ImageMediaType | undefined {
+  const head = Buffer.from(data.buffer, data.byteOffset, Math.min(data.byteLength, 12))
+  if (head.length >= 8 && head.readUInt32BE(0) === 0x89504e47) return 'image/png'
+  if (head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return 'image/jpeg'
+  if (head.length >= 12 && head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WEBP') return 'image/webp'
+  if (head.length >= 6 && (head.toString('ascii', 0, 6) === 'GIF87a' || head.toString('ascii', 0, 6) === 'GIF89a')) return 'image/gif'
+  return undefined
 }
 
 /**
@@ -189,6 +206,27 @@ export default class DirectoryRoutes {
         })
       },
     }), 'directory-routes: /dir/read-text')
+    ctx.effect(() => ctx.webServer.register({
+      kind: 'exact',
+      path: '/dir/read-image',
+      handler: async (req, res) => {
+        const signal = requestSignal(res)
+        await serve(res, async () => {
+          const path = readAbsolutePath(await readJsonBody(req))
+          const read = await browse().readImage(path, signal)
+          // The attachment per-file limit is the authoritative intake bound;
+          // enforce it here (when the seam is composed) so an oversized
+          // image never crosses the wire just to be refused in the browser.
+          const attachments = ctx.get('attachments')
+          if (attachments !== undefined && read.data.byteLength > attachments.imageLimits.maxImageBytes) {
+            throw new RouteError(413, 'image exceeds the configured per-file limit')
+          }
+          const mediaType = sniffImageMediaType(read.data)
+          if (mediaType === undefined) throw new RouteError(415, 'not a supported image format')
+          return { path: read.path, mediaType, data: Buffer.from(read.data).toString('base64') }
+        })
+      },
+    }), 'directory-routes: /dir/read-image')
     ctx.effect(() => ctx.webServer.register({
       kind: 'exact',
       path: '/dir/open-path',

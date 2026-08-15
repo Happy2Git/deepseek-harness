@@ -2384,6 +2384,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         groups: fixtureModelGroups(),
         failures: [],
       }),
+      imageInput: request => ok(request, null),
       selectModel: (request) => {
         const selected: ModelSelection = {
           provider: request.payload.provider,

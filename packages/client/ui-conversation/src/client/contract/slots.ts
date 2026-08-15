@@ -489,6 +489,23 @@ export interface ComposerBarOwnerProps {
   footer?: ReactNode
 }
 
+/** Outcome of a panel-path image read over the plugin-owned `/dir/read-image` route. */
+export interface PanelPathRead {
+  /** Base64 image data plus the host-sniffed media type on success. */
+  ok: true
+  data: string
+  mediaType: string
+}
+
+/** Failed panel-path image read: the route's HTTP status (413 oversized, 415 unsupported, etc.). */
+export interface PanelPathReadFailure {
+  ok: false
+  status: number
+}
+
+/** Discriminated panel-path read outcome; the composer turns the failure arms into product copy. */
+export type PanelPathReadResult = PanelPathRead | PanelPathReadFailure
+
 /** Injected share of the composer-bar entry (package-internal faces). */
 export interface ComposerBarInjected {
   /** The InputBar-exclusive keyboard/DOM command face (private plane); absent with the session. */
@@ -516,6 +533,17 @@ export interface ComposerBarInjected {
    * Resolves admission: false = rejected/unmatched/transport failure.
    */
   command: ((line: string) => Promise<boolean>) | undefined
+  /**
+   * Read one panel-dragged image path over the plugin-owned `/dir/read-image`
+   * route (base64 data plus sniffed media type, or the failed status); absent
+   * with the session.
+   */
+  readImageByPath: ((path: string) => Promise<PanelPathReadResult>) | undefined
+  /**
+   * Probe whether the session's current model accepts image input (`null` =
+   * unknown, treated as not capable); absent with the session.
+   */
+  sessionImageInput: (() => Promise<boolean | null>) | undefined
   /**
    * Registrant hooks compartment: the renderer binds these to
    * useNotices/useLexicon (static absent sources without a session — hook

@@ -43,6 +43,14 @@ const MAX_TEXT_FILES_TOTAL_BYTES = 1024 * 1024
 /** Total text-file chip count bound. */
 const MAX_TEXT_FILES = 20
 
+/**
+ * Drag payload type for panel file rows (ui-context-files sets it on drag
+ * start with the absolute host path as the value). Literal duplicated in
+ * ui-context-files' FileTree (cross-package wire contract; neither package
+ * may import the other).
+ */
+const PANEL_PATH_MIME = 'application/x-dsh-path'
+
 /** True when the buffer carries a NUL byte — the binary marker text intake refuses. */
 function hasNulByte(buffer: ArrayBuffer): boolean {
   const bytes = new Uint8Array(buffer)
@@ -50,6 +58,19 @@ function hasNulByte(buffer: ArrayBuffer): boolean {
     if (bytes[i] === 0) return true
   }
   return false
+}
+
+/** Decode the route's canonical base64 into browser bytes for a File. */
+function decodeBase64Bytes(data: string): Uint8Array<ArrayBuffer> {
+  const binary = atob(data)
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length))
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+/** Append one intake sentence to the draft as its own paragraph (the file-chip fold shape). */
+function appendSentence(draft: string, sentence: string): string {
+  return draft === '' ? sentence : `${draft}\n\n${sentence}`
 }
 
 /** Rail thumbnail carrying its source attachment for the open/remove callbacks. */
@@ -73,6 +94,7 @@ export function InputBar({
   useProjection, sessionId, variant, disabled: inert = false, blocked,
   workspacePickerOpen = false, onRequestWorkspace,
   placeholder, accessory, overlay, leftItems, rightItems, footer,
+  readImageByPath, sessionImageInput,
 }: InputBarProps) {
   const input = useInput(s => s)
   const notice = useNotices(s => s)
@@ -547,6 +569,39 @@ export function InputBar({
     setPendingFiles([])
   }, [pendingFiles, keyboard])
 
+  // Panel file-row image intake: the drag carries an absolute host path (the
+  // browser never saw the bytes). An image-capable session reads the file
+  // through the plugin-owned route and attaches it to the message; any other
+  // session, or any read failure, degrades to the path sentence alone, which
+  // the agent can still act on with its tools.
+  const intakePanelPath = useCallback((path: string): void => {
+    if (keyboard === undefined) return
+    void (async () => {
+      try {
+        const capable = sessionImageInput === undefined ? null : await sessionImageInput()
+        const canAttach = capable === true && readImageByPath !== undefined && addImages !== undefined
+        if (!canAttach) {
+          keyboard.setDraft(appendSentence(keyboard.snapshot.draft, t('panelImage.pathOnly', { path })))
+          return
+        }
+        const read = await readImageByPath(path)
+        if (!read.ok) {
+          showToast(read.status === 413 && imageLimits !== undefined
+            ? t('image.fileTooLarge', { size: imageSizeText(imageLimits.maxImageBytes) })
+            : t('panelImage.unreadable'))
+          return
+        }
+        const name = /[\\/]/.test(path) ? path.split(/[\\/]/).at(-1) ?? 'image' : path
+        intakeImages([new File([decodeBase64Bytes(read.data)], name, { type: read.mediaType })])
+        keyboard.setDraft(appendSentence(keyboard.snapshot.draft, t('panelImage.attached', { path })))
+      } catch {
+        // Transport failure of the capability probe or the read route: the
+        // path reference alone still reaches the model, so degrade to it.
+        keyboard.setDraft(appendSentence(keyboard.snapshot.draft, t('panelImage.pathOnly', { path })))
+      }
+    })()
+  }, [keyboard, sessionImageInput, readImageByPath, addImages, intakeImages, showToast, imageLimits, t])
+
   // Whole-page file-drop intake (DeepSeek Chat behavior): the listeners live
   // on the document so a drop anywhere over the window adds images or text
   // files, not only over the composer card. Safe as document-level state: the
@@ -558,27 +613,35 @@ export function InputBar({
   // The composer slot always composes the input machine (a non-optional prop),
   // so only the lock/machine-busy states gate text intake.
   const canAcceptText = !locked && !machineBusy
+  // Panel path drags need the draft machine to carry the path sentence.
+  // `canAcceptText` already implies it: `locked` folds `!live`, which
+  // includes `keyboard === undefined`.
+  const canAcceptPath = canAcceptText
   const canAcceptDrop = canAcceptImages || canAcceptText
   useEffect(() => {
     const hasFiles = (event: globalThis.DragEvent): boolean =>
       event.dataTransfer?.types.includes('Files') ?? false
+    const hasPanelPath = (event: globalThis.DragEvent): boolean =>
+      event.dataTransfer?.types.includes(PANEL_PATH_MIME) ?? false
+    const hasPayload = (event: globalThis.DragEvent): boolean =>
+      hasFiles(event) || hasPanelPath(event)
     const reset = (): void => {
       dragDepthRef.current = 0
       setDragActive(false)
     }
     const onDragEnter = (event: globalThis.DragEvent): void => {
-      if (!hasFiles(event)) return
+      if (!hasPayload(event)) return
       event.preventDefault()
       dragDepthRef.current += 1
       setDragActive(true)
     }
     const onDragOver = (event: globalThis.DragEvent): void => {
-      if (!hasFiles(event) || event.dataTransfer === null) return
+      if (!hasPayload(event) || event.dataTransfer === null) return
       event.preventDefault()
-      event.dataTransfer.dropEffect = canAcceptDrop ? 'copy' : 'none'
+      event.dataTransfer.dropEffect = (canAcceptDrop || canAcceptPath) ? 'copy' : 'none'
     }
     const onDragLeave = (event: globalThis.DragEvent): void => {
-      if (!hasFiles(event)) return
+      if (!hasPayload(event)) return
       dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
       if (dragDepthRef.current === 0) setDragActive(false)
       // Leaving through the viewport edge does not balance the count on every
@@ -588,9 +651,20 @@ export function InputBar({
       if ((event.target === document.documentElement || event.target === document.body) && leavingViewport) reset()
     }
     const onDrop = (event: globalThis.DragEvent): void => {
-      if (!hasFiles(event)) return
+      if (!hasPayload(event)) return
       event.preventDefault()
       reset()
+      // Panel row drags carry a path in a custom type; they never arrive as
+      // `Files`, so their intake must precede the OS-file branch. The narrow
+      // structural face keeps synthetic drag events (no getData) working.
+      const transfer = event.dataTransfer as unknown as {
+        getData?: (type: string) => string
+      } | null
+      const panelPath = transfer?.getData?.(PANEL_PATH_MIME) ?? ''
+      if (panelPath !== '') {
+        if (canAcceptPath) intakePanelPath(panelPath)
+        return
+      }
       if (!canAcceptDrop) return
       const files = [...(event.dataTransfer?.files ?? [])]
       if (canAcceptImages) intakeImages(files.filter(file => file.type.startsWith('image/')))
@@ -608,7 +682,7 @@ export function InputBar({
       document.removeEventListener('drop', onDrop)
       window.removeEventListener('dragend', reset)
     }
-  }, [canAcceptDrop, canAcceptImages, canAcceptText, intakeImages, intakeTextFiles])
+  }, [canAcceptDrop, canAcceptPath, canAcceptImages, canAcceptText, intakeImages, intakeTextFiles, intakePanelPath])
 
   const closePreview = useCallback(() => { setPreview(null) }, [])
 
