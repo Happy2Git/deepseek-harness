@@ -14,8 +14,6 @@ vi.mock('@deepseek-ai/dsh-native-command', () => ({ runNativeCommand: runNativeC
 
 import DirectoryRoutes from '../src/index.ts'
 
-const ORIGINAL_PLATFORM = process.platform
-
 /** A minimal ServerResponse double capturing what writeJson emits, plus the close/writableEnded the abort signal reads. */
 function makeResponse(): ServerResponse {
   const emitter = new EventEmitter()
@@ -100,9 +98,8 @@ beforeAll(async () => {
 
 afterEach(() => {
   // A test may switch the composed capability to a non-browse backend; restore
-  // the browse capability and the ambient platform before the next test.
+  // the browse capability before the next test.
   currentCapability = capability
-  Object.defineProperty(process, 'platform', { value: ORIGINAL_PLATFORM, configurable: true })
   runNativeCommandMock.mockClear()
   listMock.mockClear()
   readTextMock.mockClear()
@@ -230,32 +227,11 @@ describe('/dir/read-text', () => {
 })
 
 describe('/dir/open-path', () => {
-  it('opens with open(1) on macOS', async () => {
-    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+  it('hands the path to the ambient platform opener', async () => {
     const res = makeResponse()
     await routeAt('/dir/open-path').handler(makeRequest(JSON.stringify({ path: '/tmp/a.txt' })), res)
-    expect(runNativeCommandMock).toHaveBeenCalledWith('open', ['/tmp/a.txt'], expect.any(AbortSignal))
+    expect(runNativeCommandMock).toHaveBeenCalledWith(expect.any(String), ['/tmp/a.txt'], expect.any(AbortSignal))
     expect(responseStatus(res)).toBe(200)
-    expect(responseBody(res)).toEqual({ opened: true })
-  })
-
-  it('opens with Invoke-Item on Windows, escaping single quotes', async () => {
-    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
-    const res = makeResponse()
-    await routeAt('/dir/open-path').handler(makeRequest(JSON.stringify({ path: "C:\\o'reilly.txt" })), res)
-    expect(runNativeCommandMock).toHaveBeenCalledWith(
-      'powershell.exe',
-      ['-NoProfile', '-Command', "Invoke-Item -LiteralPath 'C:\\o''reilly.txt'"],
-      expect.any(AbortSignal),
-    )
-    expect(responseBody(res)).toEqual({ opened: true })
-  })
-
-  it('opens with xdg-open on other platforms', async () => {
-    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
-    const res = makeResponse()
-    await routeAt('/dir/open-path').handler(makeRequest(JSON.stringify({ path: '/tmp/a.txt' })), res)
-    expect(runNativeCommandMock).toHaveBeenCalledWith('xdg-open', ['/tmp/a.txt'], expect.any(AbortSignal))
     expect(responseBody(res)).toEqual({ opened: true })
   })
 

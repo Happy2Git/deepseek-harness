@@ -27,16 +27,16 @@ beforeAll(async () => {
   outside = join(root, 'outside')
   await mkdir(repo)
   await mkdir(outside)
-  await git(repo, ['init', '-b', 'main'])
-  await git(repo, ['config', 'user.email', 'test@example.com'])
-  await git(repo, ['config', 'user.name', 'Test'])
+  git(repo, ['init', '-b', 'main'])
+  git(repo, ['config', 'user.email', 'test@example.com'])
+  git(repo, ['config', 'user.name', 'Test'])
   // Two commits: a root commit (one file added) and a second modifying it.
   await writeFile(join(repo, 'README.md'), 'first\n')
-  await git(repo, ['add', 'README.md'])
-  await git(repo, ['commit', '-m', 'first commit'])
+  git(repo, ['add', 'README.md'])
+  git(repo, ['commit', '-m', 'first commit'])
   await writeFile(join(repo, 'README.md'), 'changed\n')
-  await git(repo, ['add', 'README.md'])
-  await git(repo, ['commit', '-m', 'second commit'])
+  git(repo, ['add', 'README.md'])
+  git(repo, ['commit', '-m', 'second commit'])
 
   ctx = new Context()
   await ctx.plugin(LocalSubprocessRuntime)
@@ -111,5 +111,23 @@ describe('GitError classification', () => {
     const notRepo = new GitError('not-a-repository', 'x')
     expect(notRepo.code).toBe('not-a-repository')
     expect(notRepo.name).toBe('GitError')
+  })
+})
+
+describe('output bounding', () => {
+  it('fails closed when collected git output exceeds the byte cap', async () => {
+    const lossyCtx = new Context()
+    await lossyCtx.plugin(LocalSubprocessRuntime)
+    lossyCtx.provide('webServer', { host: '127.0.0.1', register: () => () => {} } as never)
+    const lossyFiber = lossyCtx.plugin(LocalGit, { maxOutputBytes: 64, graceMs: 1000, maxCommits: 100, maxFiles: 500 })
+    await lossyFiber.await()
+    const lossy = lossyCtx.get('git') as LocalGit
+    const failure = await lossy.graph(repo, {}).then(
+      () => { throw new Error('graph unexpectedly resolved') },
+      (error: unknown) => error,
+    )
+    expect(failure).toMatchObject({ code: 'git-unavailable' })
+    expect(failure instanceof GitError ? failure.message : '').toContain('exceeded')
+    await lossyFiber.dispose()
   })
 })

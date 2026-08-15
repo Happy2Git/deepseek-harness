@@ -14,7 +14,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { DirectoryPickerBrowseCapability } from '@deepseek-ai/dsh-host-directory-picker'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { runNativeCommand } from '@deepseek-ai/dsh-native-command'
+import { runNativeCommand, type NativeCommandRunner } from '@deepseek-ai/dsh-native-command'
 
 /** Byte cap for one request body; the routes carry only `{ path }` payloads. */
 const MAX_BODY_BYTES = 64 * 1024
@@ -49,8 +49,8 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   }
   const chunks: Buffer[] = []
   let total = 0
-  for await (const chunk of req) {
-    const buffer = typeof chunk === 'string' ? Buffer.from(chunk) : chunk
+  for await (const chunk of req as AsyncIterable<Buffer | string>) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
     total += buffer.length
     if (total > MAX_BODY_BYTES) throw new RouteError(413, 'request body too large')
     chunks.push(buffer)
@@ -104,18 +104,38 @@ function readAbsolutePath(body: unknown): string {
   return path
 }
 
-/** Open one host path with its default application (minimal, no-shell). */
-async function openPathNative(path: string, signal: AbortSignal): Promise<void> {
-  if (process.platform === 'darwin') {
-    await runNativeCommand('open', [path], signal)
+/** Injectable platform facts for deterministic opener tests. */
+export interface OpenPathInternals {
+  /** Platform override; defaults to the ambient `process.platform`. */
+  platform?: NodeJS.Platform
+  /** Native command runner override; defaults to the real `runNativeCommand`. */
+  run?: NativeCommandRunner
+}
+
+/**
+ * Open one host path with its default application (minimal, no-shell):
+ * `open(1)` on macOS, `Invoke-Item` through PowerShell on Windows,
+ * `xdg-open` elsewhere.
+ * @param path - absolute host path handed to the platform command.
+ * @param signal - request lifetime; abort terminates the native command.
+ * @param internals - platform and runner hooks for deterministic tests.
+ * @returns resolves when the platform command exits successfully.
+ */
+export async function openPathNative(
+  path: string, signal: AbortSignal, internals: OpenPathInternals = {},
+): Promise<void> {
+  const platform = internals.platform ?? process.platform
+  const run = internals.run ?? runNativeCommand
+  if (platform === 'darwin') {
+    await run('open', [path], signal)
     return
   }
-  if (process.platform === 'win32') {
+  if (platform === 'win32') {
     const literal = `'${path.replace(/'/g, "''")}'`
-    await runNativeCommand('powershell.exe', ['-NoProfile', '-Command', `Invoke-Item -LiteralPath ${literal}`], signal)
+    await run('powershell.exe', ['-NoProfile', '-Command', `Invoke-Item -LiteralPath ${literal}`], signal)
     return
   }
-  await runNativeCommand('xdg-open', [path], signal)
+  await run('xdg-open', [path], signal)
 }
 
 /** Wrap one route body in the read-validate-answer shape. */
