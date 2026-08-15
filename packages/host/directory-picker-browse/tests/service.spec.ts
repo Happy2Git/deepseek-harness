@@ -26,8 +26,8 @@ beforeAll(async () => {
     await symlink(join(root, 'notes.txt'), join(root, 'file-link'))
   } catch {
     // Windows denies unprivileged file symlinks; the file-link row only
-    // feeds the POSIX lanes' coverage of the symlink-to-file arm, and every
-    // assertion below expects it to be filtered out anyway.
+    // feeds the POSIX lanes' coverage of the symlink-to-file arm (a file
+    // row), and the assertions below branch on its presence.
   }
 
   const ctx = new Context()
@@ -45,12 +45,24 @@ afterAll(async () => {
 })
 
 describe('BrowseDirectoryPicker', () => {
-  it('lists directories only, flags hidden rows, follows symlinks, skips broken links, sorts by name', async () => {
+  it('lists directories and files, flags hidden rows, follows symlinks, skips broken links, sorts by name', async () => {
     const listing = await capability.list(root)
     expect(listing.path).toBe(root)
     expect(listing.home).toBe(homedir())
-    expect(listing.entries.map(entry => entry.name)).toEqual(['.hidden-dir', 'linked', 'projects'])
-    expect(listing.entries.map(entry => entry.hidden)).toEqual([true, false, false])
+    const byName = (name: string) => listing.entries.find(entry => entry.name === name)
+    const names = listing.entries.map(entry => entry.name)
+    // file-link (a symlink to notes.txt) only exists where the OS permits
+    // file symlinks; where it does, it joins the level as a file row.
+    if (names.includes('file-link')) {
+      expect(names).toEqual(['.hidden-dir', 'file-link', 'linked', 'notes.txt', 'projects'])
+      expect(byName('file-link')).toMatchObject({ hidden: false, kind: 'file' })
+    } else {
+      expect(names).toEqual(['.hidden-dir', 'linked', 'notes.txt', 'projects'])
+    }
+    expect(byName('.hidden-dir')).toMatchObject({ hidden: true, kind: 'directory' })
+    expect(byName('linked')).toMatchObject({ hidden: false, kind: 'directory' })
+    expect(byName('notes.txt')).toMatchObject({ hidden: false, kind: 'file' })
+    expect(byName('projects')).toMatchObject({ hidden: false, kind: 'directory' })
     // Every entry path is absolute and host-joined — clients never join segments.
     expect(listing.entries.every(entry => entry.path === join(root, entry.name))).toBe(true)
     // Well under the default bound: the complete level, not a cut one.
@@ -59,7 +71,7 @@ describe('BrowseDirectoryPicker', () => {
 
   it('cuts a level at maxEntries keeping the name-sorted head, and flags the cut', async () => {
     const ctx = new Context()
-    const fiber = ctx.plugin(BrowseDirectoryPicker, { maxEntries: 1 })
+    const fiber = ctx.plugin(BrowseDirectoryPicker, { maxEntries: 1, maxTextBytes: 262144 })
     await fiber.await()
     const bounded = ctx.get('directoryPicker')!.capability()
     if (bounded.kind !== 'browse') throw new Error('browse backend must advertise the browse capability')
@@ -81,6 +93,36 @@ describe('BrowseDirectoryPicker', () => {
     } finally {
       await fiber.dispose()
     }
+  })
+
+  it('reads bounded text, flags the cut, rejects binary and unqualified paths, honors aborts', async () => {
+    const notes = join(root, 'notes.txt')
+    expect(await capability.readText(notes)).toEqual({ path: notes, text: 'not a directory', truncated: false })
+
+    // A tighter bound cuts the tail and reports it.
+    const ctx = new Context()
+    const fiber = ctx.plugin(BrowseDirectoryPicker, { maxTextBytes: 5, maxEntries: 1000 })
+    await fiber.await()
+    const bounded = ctx.get('directoryPicker')!.capability()
+    if (bounded.kind !== 'browse') throw new Error('browse backend must advertise the browse capability')
+    try {
+      expect(await bounded.readText(notes)).toEqual({ path: notes, text: 'not a', truncated: true })
+    } finally {
+      await fiber.dispose()
+    }
+
+    // NUL bytes mark binary content: no text preview exists for it.
+    const binary = join(root, 'blob.bin')
+    await writeFile(binary, Buffer.from([0x00, 0x01, 0x02]))
+    await expect(capability.readText(binary)).rejects.toMatchObject({ code: 'file-not-text' })
+
+    // Same fully-qualified fence as list: relative values never resolve.
+    await expect(capability.readText('relative/path.md')).rejects.toThrow('not a fully qualified path')
+
+    // The caller's abort surfaces as its own reason, not as an unreadable file.
+    const gone = new AbortController()
+    gone.abort(new Error('caller left'))
+    await expect(capability.readText(notes, gone.signal)).rejects.toThrow('caller left')
   })
 
   it('stops the scan with the caller: an aborted signal rejects with its own reason', async () => {

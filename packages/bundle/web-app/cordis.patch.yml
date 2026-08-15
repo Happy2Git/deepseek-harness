@@ -84,11 +84,30 @@
     - id: session-stats
       name: '@deepseek-ai/dsh-session-stats'
 
-    # Resolve bind host, SSH launch, and display once at boot, then mount the
-    # matching dual-face directory picker. Mount -native or -browse directly in
-    # an overlay to pin the interaction.
+    # The Web GUI always browses directories in-app: the -browse dual-face
+    # serves the workspace picker's Miller dialog AND the context-files panel's
+    # directory tree + text read through one capability. The -auto chooser
+    # resolved to `native` on attended macOS (an OS dialog a browser can reach
+    # only locally), which left the panel's listing unavailable on desktop —
+    # pinning browse keeps every web consumer on the in-app interaction and
+    # works for remote browsers too. Mount -native directly in an overlay to
+    # restore the OS dialog for a specific deployment.
     - id: directory-picker
-      name: '@deepseek-ai/dsh-host-directory-picker-auto'
+      name: '@deepseek-ai/dsh-host-directory-picker-browse'
+    - id: directory-picker-ui
+      name: '@deepseek-ai/dsh-client-ui-directory-picker-browse'
+
+    # Read-only git history for the context-files panel's commit graph: the
+    # local backend runs the git binary over ctx.subprocess and serves the
+    # panel on its own /git/* routes. No client package is needed — the panel
+    # reuses ui-context-files' injected face.
+    - id: git
+      name: '@deepseek-ai/dsh-host-git-local'
+
+    # Plugin-owned HTTP routes for the context-files panel's directory
+    # browsing — the panel fetches these instead of the core API gateway.
+    - id: directory-routes
+      name: '@deepseek-ai/dsh-host-directory-routes'
 
     # Read-only projection of current Loader entries for trusted client RPCs.
     - id: plugin-inventory
@@ -269,6 +288,9 @@
 
     - id: ui-user-questions
       name: '@deepseek-ai/dsh-client-ui-user-questions'
+
+    - id: ui-context-files
+      name: '@deepseek-ai/dsh-client-ui-context-files'
 
     - id: ui-trajectory
       name: '@deepseek-ai/dsh-client-ui-trajectory'
