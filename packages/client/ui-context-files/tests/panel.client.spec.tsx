@@ -84,6 +84,7 @@ function makeProps(): {
   gitShowCommit: ReturnType<typeof vi.fn>
   workspaceStatus: ReturnType<typeof vi.fn>
   showFileDiff: ReturnType<typeof vi.fn>
+  showWorkspaceDiff: ReturnType<typeof vi.fn>
   gitStatusFor: ReturnType<typeof vi.fn>
   readInjectedDocs: ReturnType<typeof vi.fn>
   bumpDocsStream: () => void
@@ -127,6 +128,7 @@ function makeProps(): {
   const gitShowCommit = vi.fn(async (): Promise<GitCommitDetail> => COMMIT_DETAIL)
   const workspaceStatus = vi.fn(async (): Promise<GitWorkspaceStatus> => WORKSPACE)
   const showFileDiff = vi.fn(async (): Promise<GitFileDiff> => ({ path: 'README.md', diff: '+diff line\n', truncated: false }))
+  const showWorkspaceDiff = vi.fn(async (): Promise<GitFileDiff> => ({ path: 'README.md', diff: '+working line\n', truncated: false }))
   const gitStatusFor = vi.fn(async (): Promise<GitStatusFile[]> => STATUS_FILES)
   const props = {
     useSessions: selector => selector(sessionState),
@@ -142,6 +144,7 @@ function makeProps(): {
     gitShowCommit,
     workspaceStatus,
     showFileDiff,
+    showWorkspaceDiff,
     gitStatusFor,
     readInjectedDocs,
     compactionBoundary: vi.fn((): number | null => null),
@@ -150,8 +153,8 @@ function makeProps(): {
     sessionCwd: () => '/proj',
   } as PanelRootProps
   return {
-    props, listDirectory, readText, gitGraph, gitShowCommit, workspaceStatus, showFileDiff, gitStatusFor,
-    readInjectedDocs, bumpDocsStream,
+    props, listDirectory, readText, gitGraph, gitShowCommit, workspaceStatus, showFileDiff, showWorkspaceDiff,
+    gitStatusFor, readInjectedDocs, bumpDocsStream,
   }
 }
 
@@ -551,5 +554,27 @@ describe('PanelRoot', () => {
     })
     expect(showFileDiff).toHaveBeenCalledWith('/proj', 'a'.repeat(40), 'README.md', expect.anything())
     expect(document.body.querySelector('[role="dialog"]')!.textContent).toContain('+diff line')
+    // The unified diff renders colored: the added line carries its role.
+    expect(document.body.querySelector('[data-diff-line="add"]')?.textContent).toBe('+diff line')
+  })
+
+  it('opens the working-tree diff from a workspace row', async () => {
+    const { props, showWorkspaceDiff } = makeProps()
+    render(<PanelRoot {...props} />)
+    fireEvent.click(screen.getByRole('tab', { name: 'Git' }))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    // The workspace block lists README.md (modified); clicking the row opens
+    // the working-tree diff instead of a commit diff.
+    fireEvent.click(screen.getByTitle('README.md'))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(showWorkspaceDiff).toHaveBeenCalledWith('/proj', 'README.md', expect.anything())
+    expect(document.body.querySelector('[role="dialog"]')!.textContent).toContain('+working line')
+    expect(document.body.querySelector('[data-diff-line="add"]')?.textContent).toBe('+working line')
+    fireEvent.click(screen.getByLabelText('关闭中部预览'))
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
   })
 })

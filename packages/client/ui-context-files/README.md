@@ -2,12 +2,13 @@
 
 English | [中文](README.zh.md)
 
-Browser-side panel plugin: a right-docked floating surface registered into the layout's `shell.overlay` slot, with two views:
+Browser-side panel plugin: a right-docked floating surface registered into the layout's `shell.overlay` slot, with three tabs plus centered pop-outs:
 
-- **Context tab** — lists the current session's injected-context documents (workspace instructions, skill invocations, goal notices, cross-session recalls) and previews the selected one with the shared safe `MarkdownText` renderer; a "load earlier" control pages the log window back to the session-start baseline (AGENTS.md and friends).
-- **Files tab** — browses the session workspace directory tree through the Host `browse` capability: directories expand lazily, files render as leaves, previewable text files (`.md`/`.markdown`/`.txt`) open in a lower preview pane through the Host's bounded read, plus a name filter and "open in file manager" rows.
+- **Context tab** — the session's injected-context documents (workspace instructions, skill invocations, goal notices, cross-session recalls) split into the live window and the compaction history stream, with search over both; the view re-projects as the session streams and auto-pages one history batch when a checkpoint lands. A click opens a document in the centered pop-out.
+- **Files tab** — browses the session workspace directory tree through the Host `browse` capability: directories expand lazily, files render as leaves with git working-tree status badges, previewable text files (`.md`/`.markdown`/`.txt`) open in the centered pop-out, plus a name filter and "open in file manager" rows.
+- **Git tab** — a framed working-tree block (branch position, uncommitted files — each row opens the file's working-tree diff) above a read-only commit graph with lanes, ref badges, lazy commit expansion, and a refresh control; a commit file opens its diff in the centered pop-out.
 
-The node half is deliberately empty; everything this package does is presentation over already-available runtime facts.
+Diff pop-outs render the unified diff colored by line role (additions, deletions, hunk headers, file headers) and truncated with a note at the backend's byte bound. The node half is deliberately empty; everything this package does is presentation over already-available runtime facts.
 
 ## Composition
 
