@@ -34,6 +34,10 @@ Dropping text files anywhere on the page attaches them as chips; their content i
 
 The conversation reserves right-side space for the panel, so the panel never overlaps the chat.
 
+### Security and performance
+
+The panel's host routes are loopback-only, body-capped, fully-qualified-path-only, and fail closed on oversized or malformed reads; git access is read-only and image drags never copy files into the workspace. The context tab's document stream is signature-gated (re-renders only on real document changes), and complete history arrives through `/dir/injected-docs`, which filters the durable log server-side — on a session with 181k events this replaced roughly 120 MB of history-page JSON per activation with a single KB-scale response. All reads and listings are bounded and abort with the caller.
+
 ## Run
 
 From npm (upstream package):
