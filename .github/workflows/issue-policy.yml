@@ -14,6 +14,11 @@ permissions:
 jobs:
   policy:
     name: Issue policy
+    # This is an upstream-org issue-management workflow: it hardcodes the
+    # deepseek-harness/deepseek-harness project and org secrets. On a fork
+    # (e.g. Happy2Git/deepseek-harness) those don't exist and it would 404 /
+    # false-fail on every PR, so only run it on the canonical upstream repo.
+    if: github.repository == 'deepseek-harness/deepseek-harness'
     runs-on: ubuntu-latest
     steps:
       - name: Check out trusted policy
