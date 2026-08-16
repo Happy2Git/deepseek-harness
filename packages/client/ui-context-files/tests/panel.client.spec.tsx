@@ -144,6 +144,7 @@ function makeProps(): {
     showFileDiff,
     gitStatusFor,
     readInjectedDocs,
+    compactionBoundary: vi.fn((): number | null => null),
     hasMoreDocs: vi.fn((): boolean => true),
     loadOlderDocs: vi.fn(async () => {}),
     sessionCwd: () => '/proj',
@@ -256,6 +257,36 @@ describe('PanelRoot', () => {
     act(() => { bumpDocsStream() })
     expect(document.body.textContent).toContain('新技能')
     expect(document.body.textContent).toContain('3 篇')
+  })
+
+  it('pages one history batch when a compaction checkpoint first appears', async () => {
+    const { props, bumpDocsStream } = makeProps()
+    const { compactionBoundary, hasMoreDocs, loadOlderDocs } = props
+    const boundary = compactionBoundary as ReturnType<typeof vi.fn>
+    const more = hasMoreDocs as ReturnType<typeof vi.fn>
+    const loader = loadOlderDocs as ReturnType<typeof vi.fn>
+    render(<PanelRoot {...props} />)
+    boundary.mockReturnValue(42)
+    act(() => { bumpDocsStream() })
+    expect(loader).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    // The same checkpoint never pages again on further stream bumps.
+    act(() => { bumpDocsStream() })
+    expect(loader).toHaveBeenCalledTimes(1)
+    // A newer checkpoint pages one more batch.
+    boundary.mockReturnValue(43)
+    act(() => { bumpDocsStream() })
+    expect(loader).toHaveBeenCalledTimes(2)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    // No older pages: the checkpoint leaves the stream empty-handed.
+    more.mockReturnValue(false)
+    boundary.mockReturnValue(44)
+    act(() => { bumpDocsStream() })
+    expect(loader).toHaveBeenCalledTimes(2)
   })
 
   it('badges file instructions vs runtime context and pages older documents', async () => {
