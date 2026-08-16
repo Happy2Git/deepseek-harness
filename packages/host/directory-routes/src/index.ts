@@ -187,26 +187,12 @@ function readDocEventsBody(body: unknown): { sessionId: string } {
  * @param signal - request lifetime; abort stops the persistence read.
  * @returns the doc-relevant events, oldest first.
  */
-async function injectedDocEvents(ctx: Context, sessionId: string, signal: AbortSignal): Promise<WireSessionEvent[]> {
-  const persistence = ctx.get('sessionPersistence') as {
-    inspect(id: string, signal?: AbortSignal): Promise<{ events: readonly WireSessionEvent[] }>
-  } | undefined
-  const sessions = ctx.get('sessions') as {
-    get(id: string): { events: readonly WireSessionEvent[] } | undefined
-  } | undefined
-  let events: readonly WireSessionEvent[] = []
-  if (persistence !== undefined) {
-    events = (await persistence.inspect(sessionId, signal)).events
-  }
-  // The live session holds events persistence has not flushed yet; merge by
-  // seq (the live copy wins for shared seqs) and keep log order.
-  const live = sessions?.get(sessionId)
-  if (live !== undefined) {
-    const bySeq = new Map<number, WireSessionEvent>()
-    for (const event of events) bySeq.set(event.seq, event)
-    for (const event of live.events) bySeq.set(event.seq, event)
-    events = [...bySeq.values()].sort((left, right) => left.seq - right.seq)
-  }
+/** Bounded revision-keyed memo of one session's filtered doc events. */
+const docEventCache = new Map<string, { revision: unknown; events: WireSessionEvent[] }>()
+const DOC_EVENT_CACHE_MAX = 8
+
+/** Filter one event log down to the injected-document source events (text blocks only). */
+function filterDocEvents(events: readonly WireSessionEvent[]): WireSessionEvent[] {
   const docs: WireSessionEvent[] = []
   for (const event of events) {
     if (event.type !== 'user/message') continue
@@ -223,6 +209,69 @@ async function injectedDocEvents(ctx: Context, sessionId: string, signal: AbortS
     })
   }
   return docs
+}
+
+/**
+ * The persistence store's filtered doc events for one session, memoized by
+ * the store's opaque revision token: repeated panel activations against an
+ * unchanged log skip the full-log read. The revision lookup rides
+ * `listSnapshots` (metadata only), and the live session's unflushed events
+ * merge per request, so the memo never serves stale tails.
+ * @param ctx - host root context.
+ * @param sessionId - the session's durable id.
+ * @param signal - request lifetime; abort stops the reads.
+ * @returns the filtered persisted events plus the revision they came from.
+ */
+async function persistedDocEvents(
+  ctx: Context,
+  sessionId: string,
+  signal: AbortSignal,
+): Promise<{ events: WireSessionEvent[]; revision: unknown }> {
+  const persistence = ctx.get('sessionPersistence') as {
+    inspect(id: string, signal?: AbortSignal): Promise<{ events: readonly WireSessionEvent[] }>
+    listSnapshots(signal?: AbortSignal): Promise<{ header: { id: string }; revision: unknown }[]>
+  } | undefined
+  if (persistence === undefined) return { events: [], revision: undefined }
+  const snapshots = await persistence.listSnapshots(signal)
+  const revision = snapshots.find(snapshot => snapshot.header.id === sessionId)?.revision
+  const cached = docEventCache.get(sessionId)
+  if (cached !== undefined && cached.revision === revision) return cached
+  const events = (await persistence.inspect(sessionId, signal)).events
+  const entry = { revision, events: filterDocEvents(events) }
+  docEventCache.set(sessionId, entry)
+  if (docEventCache.size > DOC_EVENT_CACHE_MAX) {
+    const oldest = docEventCache.keys().next().value
+    if (oldest !== undefined) docEventCache.delete(oldest)
+  }
+  return entry
+}
+
+/**
+ * Collect one session's injected-document source events from the complete
+ * durable log: every `user/message` whose source is not the human, plus their
+ * surface op for compaction-checkpoint detection. Serves the live session's
+ * unflushed events on top of the persistence store's (memoized) log, deduped
+ * by seq. Text blocks only: image and tool payloads never cross this wire.
+ * @param ctx - host root context (optional session store + persistence).
+ * @param sessionId - the session's durable id.
+ * @param signal - request lifetime; abort stops the reads.
+ * @returns the doc-relevant events, oldest first.
+ */
+async function injectedDocEvents(ctx: Context, sessionId: string, signal: AbortSignal): Promise<WireSessionEvent[]> {
+  const { events: persisted } = await persistedDocEvents(ctx, sessionId, signal)
+  const sessions = ctx.get('sessions') as {
+    get(id: string): { events: readonly WireSessionEvent[] } | undefined
+  } | undefined
+  // The live session holds events persistence has not flushed yet; merge by
+  // seq (the live copy wins for shared seqs) and keep log order.
+  const live = sessions?.get(sessionId)
+  if (live === undefined) return persisted
+  const bySeq = new Map<number, WireSessionEvent>()
+  for (const event of persisted) bySeq.set(event.seq, event)
+  for (const event of live.events) bySeq.set(event.seq, event)
+  // Filter once more after the merge: the live window's raw events carry
+  // human messages too, and only the doc-relevant events may cross the wire.
+  return filterDocEvents([...bySeq.values()].sort((left, right) => left.seq - right.seq))
 }
 
 /** Wrap one route body in the read-validate-answer shape. */

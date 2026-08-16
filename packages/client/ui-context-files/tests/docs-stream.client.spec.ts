@@ -52,7 +52,7 @@ function listState(current: SessionId): SessionListState {
   return {
     ids: [S1, S2], byId: {}, current, phase: 'ready',
     subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
-  } as SessionListState
+  }
 }
 
 /** One harness: a list source, two session faces with foldable nodes, and a binding lookup. */
