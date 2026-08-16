@@ -1,74 +1,62 @@
-# DeepSeek Harness
+# DeepSeek Harness — 上下文面板分支
 
 [English](README.md) | 中文
 
-DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的开源 agent harness（智能体框架）。
+这是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的一个分支，新增了右侧上下文文件面板、面板文件拖入对话与对话避让。其余部分与上游保持一致。
 
-它采用**一切皆插件**的架构，并由 [Cordis](https://github.com/cordiverse/cordis) 驱动，其设计参见论文 [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper)。
+## 本分支新增的功能
 
-## 开发者预览
+### 右侧上下文文件面板
 
-DeepSeek Harness 目前处于 _开发者预览_ 阶段，正在快速迭代。**未来将出现破坏兼容性的变更。**
+一个常驻、可调宽的面板，固定在 Web 界面右缘，包含三个标签：
+
+- **文件夹** — 浏览会话工作区目录：目录在前排序、按名称过滤、带 git 工作区状态徽章，每行可打开或复制路径。
+- **上下文** — 从会话日志读取的注入上下文文档，分为当前有效窗口与压缩历史流水两部分，带搜索；视图随会话事件流实时重投影，压缩检查点落地时自动向后翻一批历史。
+- **Git** — 带边框的工作区区块（分支位置、未提交文件）加只读提交图（IDE 历史视图风格），带刷新按钮；展开提交查看变更文件，点击文件在中部弹出 diff。
+
+![文件夹标签](screenshots/01-files-tab.png)
+![Git 标签](screenshots/02-git-tab.png)
+![上下文标签](screenshots/03-context-tab.png)
+![文件夹标签，目录在前](screenshots/04-files-tab-dirs-first.png)
+
+### 面板文件拖入对话
+
+把面板里的文件行拖进对话区，携带的是文件的绝对路径。图片文件在支持图片的模型上会直接读取内容并附加进本条消息；其他模型（或读取失败）则收到路径说明，由 agent 用自己的工具处理。任何情况下都不在工作区复制文件。
+
+![面板文件拖入](screenshots/05-drag-image.png)
+
+### 文本文件拖放录入
+
+把文本文件拖到页面上任意位置即可附加为文件芯片；提交时内容折入消息，绝不粘贴进文本框。
+
+### 对话避让
+
+对话区域为面板预留右侧空间，因此面板绝不会遮挡聊天内容。
 
 ## 运行
 
-### 通过 `npm` 运行
-
-安装 `Node.js`，然后运行：
+通过 npm（上游包）：
 
 ```sh
 npx @deepseek-ai/dsh web
 ```
 
-该命令会启动 Web UI，默认地址为 `http://127.0.0.1:3080`。详见 [Web UI 指南](docs/user/guide/index.md)。
-
-### 从源码运行
-
-如需从仓库源码运行：
+从源码运行：
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
+git clone https://github.com/Happy2Git/deepseek-harness.git
 cd deepseek-harness
 pnpm install
 pnpm run build
 pnpm dsh web
 ```
 
-## 社区与支持
+Web 界面默认运行在 `http://127.0.0.1:3080`。
 
-- 欢迎通过 [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) 提交反馈或 bug 报告。
-- 为你的插件仓库添加 [`dsh-plugin`](https://github.com/topics/dsh-plugin) 话题，便于被发现。
-- 欢迎加入 DeepSeek Harness 企微群：扫码添加企微小助手并填写入群问卷，完成后小助手会邀请你入群。
+## 可独立发布的插件
 
-<table>
-  <thead>
-    <tr>
-      <th align="center">企微小助手</th>
-      <th align="center">入群问卷</th>
-      <th align="center">微信公众号</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center"><img src="assets/community-wecom-assistant.png" alt="DeepSeek Harness 企微小助手二维码" width="180" height="180"></td>
-      <td align="center"><a href="https://trtgsjkv6r.feishu.cn/share/base/form/shrcnIt5twSVdLGD52KJBckGCgg"><img src="assets/community-wecom-survey.png" alt="DeepSeek Harness 入群问卷二维码" width="180" height="180"></a></td>
-      <td align="center"><img src="assets/community-wechat-official-account.png" alt="DeepSeek Harness 团队微信公众号二维码" width="180" height="180"></td>
-    </tr>
-  </tbody>
-</table>
-
-## 参与贡献
-
-参见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-## 开发
-
-请先阅读[开发指南](docs/development.md)与[架构文档](docs/architecture.md)。
-
-面向 agent：请遵循 [AGENTS.md](AGENTS.md)。
+面板及其 Git／目录后端已作为生态插件单独发布，见 [dsh-compass](https://github.com/Happy2Git/dsh-compass)。终端 TUI（`dsh-terminal`）以同样的方式打包，功能完善前暂不发布。
 
 ## 许可证
 
-[MIT](LICENSE)
-
-第三方依赖及其许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+MIT。Copyright (c) 2026 DeepSeek。本分支保留上游 [LICENSE](LICENSE)。

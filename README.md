@@ -1,57 +1,62 @@
-# DeepSeek Harness
+# DeepSeek Harness — context-panel fork
 
 English | [中文](README.zh.md)
 
-DeepSeek Harness (`dsh`) is an open-source agent harness developed by [DeepSeek AI](https://deepseek.com).
+A fork of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) that adds a right-side context-and-files panel, panel-file drag into the conversation, and conversation reserve. Everything else tracks upstream.
 
-It uses an architecture where **everything is a plugin**, and is powered by [Cordis](https://github.com/cordiverse/cordis), whose design is described in [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper).
+## What this fork adds
 
-## Developer preview
+### Right-side context and files panel
 
-DeepSeek Harness is currently in _developer preview_ and is iterating rapidly. **THERE WILL BE COMPATIBILITY-BREAKING CHANGES.**
+A persistent, resizable panel pinned to the right edge of the Web UI, with three tabs:
+
+- **Files (文件夹)** — browse the session's workspace directory with directories-first order, a basename filter, git working-tree status badges, and per-row open/copy actions.
+- **Context (上下文)** — the injected-context documents read from the session log, split into the live window (当前有效) and the compaction history stream (历史流水), with search over both. The view re-projects itself as the session streams and pages one history batch automatically when a compaction checkpoint lands.
+- **Git** — a framed working-tree block (branch position, uncommitted files) above a read-only commit graph in IDE-history style, with a refresh control; expand a commit to see its changed files and open a file's diff in the centered pop-out.
+
+![Files tab](screenshots/01-files-tab.png)
+![Git tab](screenshots/02-git-tab.png)
+![Context tab](screenshots/03-context-tab.png)
+![Files tab, directories first](screenshots/04-files-tab-dirs-first.png)
+
+### Drag panel files onto the conversation
+
+File rows in the panel drag their absolute path into the conversation. For image files on an image-capable model, the image content is read and attached to the message directly; any other model (or a read failure) receives the path sentence, which the agent can act on with its tools. Nothing is copied into the workspace.
+
+![Panel file drag](screenshots/05-drag-image.png)
+
+### Text-file drop intake
+
+Dropping text files anywhere on the page attaches them as chips; their content is folded into the message at submit, never pasted into the text box.
+
+### Conversation reserve
+
+The conversation reserves right-side space for the panel, so the panel never overlaps the chat.
 
 ## Run
 
-### Run from `npm`
-
-Install `Node.js`, then run:
+From npm (upstream package):
 
 ```sh
 npx @deepseek-ai/dsh web
 ```
 
-The command starts the Web UI, served at `http://127.0.0.1:3080` by default. See [Web UI guide](docs/user/guide/index.md).
-
-### Run from source
-
-To run from a repository checkout:
+From source:
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
+git clone https://github.com/Happy2Git/deepseek-harness.git
 cd deepseek-harness
 pnpm install
 pnpm run build
 pnpm dsh web
 ```
 
-## Community and support
+The Web UI is served at `http://127.0.0.1:3080` by default.
 
-- Feel free to submit feedback or bug reports through [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions).
-- Add the [`dsh-plugin`](https://github.com/topics/dsh-plugin) topic to your plugin repository for discoverability.
-- Join <a href="https://discord.gg/Ycq5dCaS4">DeepSeek Harness Discord community</a>.
+## The extractable plugins
 
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Development
-
-Start with the [development guide](docs/development.md) and [architecture documentation](docs/architecture.md).
-
-For agents, follow [AGENTS.md](AGENTS.md).
+The panel and its git/directory backends are published separately as ecosystem plugins — see [dsh-compass](https://github.com/Happy2Git/dsh-compass). A terminal TUI (`dsh-terminal`) is packaged the same way and stays local until its feature set grows.
 
 ## License
 
-[MIT](LICENSE)
-
-Third-party dependencies and their licenses are disclosed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+MIT. Copyright (c) 2026 DeepSeek. This fork keeps the upstream [LICENSE](LICENSE).
