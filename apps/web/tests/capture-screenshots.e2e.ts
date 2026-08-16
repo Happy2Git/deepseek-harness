@@ -154,6 +154,16 @@ describe.skipIf(OUT_DIR === undefined)('README screenshot capture', () => {
       await page.waitForSelector('text=分支', { timeout: 15_000 })
       await page.waitForTimeout(300)
       await page.screenshot({ path: join(outDir, '02-git-tab.png') })
+
+      // The working-tree diff pop-out: click the modified file's workspace row
+      // and capture the colored diff in the centered dialog.
+      await page.locator('span[title="README.md"]').first().click()
+      await page.waitForSelector('[role="dialog"][aria-label="README.md"]', { timeout: 15_000 })
+      await page.waitForSelector('[data-diff-line="add"]', { timeout: 15_000 })
+      await page.waitForTimeout(300)
+      await page.screenshot({ path: join(outDir, '06-workspace-diff.png') })
+      await page.getByLabel('关闭中部预览').click()
+      await page.waitForSelector('[role="dialog"]', { state: 'detached', timeout: 15_000 })
       // The plain files tab (collapsed root) doubles as the tree overview shot.
       await page.getByRole('tab', { name: '文件夹' }).click()
       await page.waitForSelector('text=workspace', { timeout: 15_000 })

@@ -194,6 +194,48 @@ describe('LocalGit.directoryStatus', () => {
   })
 })
 
+describe('LocalGit.showWorkspaceDiff', () => {
+  it('returns the working-tree diff of a modified tracked file against HEAD', async () => {
+    await writeFile(join(repo, 'README.md'), 'changed\nworking\n')
+    const diff = await local.showWorkspaceDiff(repo, 'README.md')
+    expect(diff.path).toBe('README.md')
+    expect(diff.diff).toContain('diff --git')
+    expect(diff.diff).toContain('+working')
+    expect(diff.truncated).toBe(false)
+    git(repo, ['checkout', '--', 'README.md'])
+  })
+
+  it('returns the whole file as additions for an untracked file', async () => {
+    await writeFile(join(repo, 'fresh.txt'), 'brand new\n')
+    const diff = await local.showWorkspaceDiff(repo, 'fresh.txt')
+    expect(diff.path).toBe('fresh.txt')
+    expect(diff.diff).toContain('diff --git')
+    expect(diff.diff).toContain('+brand new')
+    expect(diff.truncated).toBe(false)
+    await rm(join(repo, 'fresh.txt'))
+  })
+
+  it('includes staged additions of a new tracked file', async () => {
+    await writeFile(join(repo, 'staged.txt'), 'staged line\n')
+    git(repo, ['add', 'staged.txt'])
+    const diff = await local.showWorkspaceDiff(repo, 'staged.txt')
+    expect(diff.diff).toContain('+staged line')
+    git(repo, ['reset', '-q', '--', 'staged.txt'])
+    await rm(join(repo, 'staged.txt'))
+  })
+
+  it('answers an empty diff for a clean tracked file', async () => {
+    const diff = await local.showWorkspaceDiff(repo, 'README.md')
+    expect(diff.diff).toBe('')
+    expect(diff.truncated).toBe(false)
+  })
+
+  it('fails closed outside a repository', async () => {
+    await writeFile(join(outside, 'x.txt'), 'x\n')
+    await expect(local.showWorkspaceDiff(outside, 'x.txt')).rejects.toBeInstanceOf(GitError)
+  })
+})
+
 describe('LocalGit.showFileDiff', () => {
   it('returns the unified diff of one file in one commit', async () => {
     const page = await local.graph(repo, { count: 3 })
