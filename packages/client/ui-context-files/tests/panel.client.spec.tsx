@@ -148,6 +148,7 @@ function makeProps(): {
     gitStatusFor,
     readInjectedDocs,
     compactionBoundary: vi.fn((): number | null => null),
+    pullDocsHistory: vi.fn(async () => ({ docs: [], boundary: -1, hasMore: false, firstSeq: null })),
     hasMoreDocs: vi.fn((): boolean => false),
     loadOlderDocs: vi.fn(async () => {}),
     sessionCwd: () => '/proj',
@@ -212,6 +213,9 @@ describe('PanelRoot', () => {
 
   it('splits the live window from the shadowed history', () => {
     const { props } = makeProps()
+    // The fold's boundary must agree with the fixture's active flags: the
+    // checkpoint at seq 1 shadows old.md and leaves new.md live.
+    ;(props.compactionBoundary as ReturnType<typeof vi.fn>).mockReturnValue(1)
     ;(props.readInjectedDocs as ReturnType<typeof vi.fn>).mockReturnValue([
       { seq: 1, time: 1_000, role: 'inject', label: 'old.md', form: 'instructions', text: '旧指令', active: false },
       { seq: 2, time: 2_000, role: 'inject', label: 'new.md', form: 'instructions', text: '新指令', active: true },
@@ -262,37 +266,6 @@ describe('PanelRoot', () => {
     expect(document.body.textContent).toContain('3 篇')
   })
 
-  it('pages one history batch when a compaction checkpoint first appears', async () => {
-    const { props, bumpDocsStream } = makeProps()
-    const { compactionBoundary, hasMoreDocs, loadOlderDocs } = props
-    const boundary = compactionBoundary as ReturnType<typeof vi.fn>
-    const more = hasMoreDocs as ReturnType<typeof vi.fn>
-    const loader = loadOlderDocs as ReturnType<typeof vi.fn>
-    render(<PanelRoot {...props} />)
-    more.mockReturnValue(true)
-    boundary.mockReturnValue(42)
-    act(() => { bumpDocsStream() })
-    expect(loader).toHaveBeenCalledTimes(1)
-    await act(async () => {
-      await Promise.resolve()
-    })
-    // The same checkpoint never pages again on further stream bumps.
-    act(() => { bumpDocsStream() })
-    expect(loader).toHaveBeenCalledTimes(1)
-    // A newer checkpoint pages one more batch.
-    boundary.mockReturnValue(43)
-    act(() => { bumpDocsStream() })
-    expect(loader).toHaveBeenCalledTimes(2)
-    await act(async () => {
-      await Promise.resolve()
-    })
-    // No older pages: the checkpoint leaves the stream empty-handed.
-    more.mockReturnValue(false)
-    boundary.mockReturnValue(44)
-    act(() => { bumpDocsStream() })
-    expect(loader).toHaveBeenCalledTimes(2)
-  })
-
   it('badges file instructions vs runtime context and pages older documents', async () => {
     const { props } = makeProps()
     const { readInjectedDocs, loadOlderDocs, hasMoreDocs } = props
@@ -302,14 +275,7 @@ describe('PanelRoot', () => {
     render(<PanelRoot {...props} />)
     expect(screen.getAllByText('指令文件').length).toBe(1)
     expect(screen.getAllByText('动态上下文').length).toBe(1)
-    // The auto-walk pages to the cap first; wait until it settles so the
-    // manual control renders its normal label again.
-    await vi.waitFor(() => {
-      expect(loader).toHaveBeenCalledTimes(20)
-    })
-    await vi.waitFor(() => {
-      expect(screen.queryByText('加载更早的注入文档')).not.toBeNull()
-    })
+    expect(loader).not.toHaveBeenCalled()
     const callsBefore = reader.mock.calls.length
     fireEvent.click(screen.getByText('加载更早的注入文档'))
     await act(async () => {
@@ -545,34 +511,42 @@ describe('PanelRoot', () => {
     expect(workspaceStatus).toHaveBeenCalledTimes(2)
   })
 
-  it('auto-walks the history until the window is exhausted', async () => {
+  it('pulls the complete older history out-of-band and merges it into the sections', async () => {
     const { props } = makeProps()
-    const { hasMoreDocs, loadOlderDocs } = props
-    const more = hasMoreDocs as ReturnType<typeof vi.fn>
+    const { pullDocsHistory, loadOlderDocs, hasMoreDocs } = props
+    const pull = pullDocsHistory as ReturnType<typeof vi.fn>
     const loader = loadOlderDocs as ReturnType<typeof vi.fn>
-    // True until two pages loaded (renders may consume extra reads harmlessly).
-    more.mockImplementation(() => loader.mock.calls.length < 2)
+    ;(hasMoreDocs as ReturnType<typeof vi.fn>).mockReturnValue(true)
+    const OLD_DOC = { seq: 3, time: 3_000, role: 'inject', label: '早期指令', form: 'instructions', text: '最早注入。', active: false }
+    // One tail page (overlapping the live window, deduped) then one older page.
+    pull.mockResolvedValueOnce({ docs: [...DOCS], boundary: 10, hasMore: true, firstSeq: 5 })
+    pull.mockResolvedValueOnce({ docs: [OLD_DOC], boundary: 10, hasMore: false, firstSeq: null })
     render(<PanelRoot {...props} />)
     await vi.waitFor(() => {
-      expect(loader).toHaveBeenCalledTimes(2)
+      expect(document.body.textContent).toContain('早期指令')
     })
+    // The shared conversation window stays untouched: the panel never pages it.
+    expect(loader).not.toHaveBeenCalled()
   })
 
-  it('stops the auto-walk at the page cap and walks each session once', async () => {
+  it('caps the out-of-band pull and never pages the shared window', async () => {
     const { props, bumpDocsStream } = makeProps()
-    const { hasMoreDocs, loadOlderDocs } = props
-    const more = hasMoreDocs as ReturnType<typeof vi.fn>
+    const { pullDocsHistory, loadOlderDocs, hasMoreDocs } = props
+    const pull = pullDocsHistory as ReturnType<typeof vi.fn>
     const loader = loadOlderDocs as ReturnType<typeof vi.fn>
-    more.mockReturnValue(true)
+    ;(hasMoreDocs as ReturnType<typeof vi.fn>).mockReturnValue(true)
+    pull.mockResolvedValue({ docs: [], boundary: -1, hasMore: true, firstSeq: 1 })
     render(<PanelRoot {...props} />)
     await vi.waitFor(() => {
-      expect(loader).toHaveBeenCalledTimes(20)
+      expect(pull).toHaveBeenCalledTimes(20)
     })
-    // Stream advances never re-walk the same session.
+    expect(loader).not.toHaveBeenCalled()
+    // Stream advances never re-pull the same session.
     act(() => { bumpDocsStream() })
     await act(async () => { await Promise.resolve() })
-    expect(loader).toHaveBeenCalledTimes(20)
+    expect(pull).toHaveBeenCalledTimes(20)
   })
+
 
   it('opens the file diff in the centered pop-out from a commit row', async () => {
     const { props, showFileDiff } = makeProps()

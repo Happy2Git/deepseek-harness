@@ -4,7 +4,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ClientContext, ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
-import { compactionBoundary, hasMoreDocs, loadOlderDocs, readInjectedDocs } from '../src/client/read-context.ts'
+import { compactionBoundary, foldDocEvents, hasMoreDocs, loadOlderDocs, mergeDocs, readInjectedDocs } from '../src/client/read-context.ts'
 
 const S1 = 's1' as SessionId
 
@@ -93,6 +93,60 @@ describe('compactionBoundary', () => {
     expect(compactionBoundary(ctx, 'ghost' as SessionId)).toBeNull()
     const plain = harness([contextNode(1, 'x')])
     expect(compactionBoundary(plain.ctx, S1)).toBeNull()
+  })
+})
+
+/** One raw wire event the fold reads. */
+function docEvent(seq: number, source: unknown, text: string, surfaceOp?: { op: string }) {
+  return {
+    seq,
+    time: seq * 1_000,
+    ...surfaceOp === undefined ? {} : { surfaceOp },
+    data: { source, content: [{ type: 'text' as const, text }] },
+  }
+}
+
+describe('foldDocEvents', () => {
+  it('folds non-user messages into documents with provenance and the page boundary', () => {
+    const folded = foldDocEvents([
+      docEvent(1, { kind: 'agent-instructions', form: 'instructions', changes: [{ path: 'AGENTS.md' }] }, '规则'),
+      docEvent(2, { kind: 'user' }, '人类消息,不折叠'),
+      docEvent(3, { kind: 'skill-invocation', name: 'skill-a', form: 'catalog' }, ''),
+      docEvent(4, { kind: 'session-reference', references: [{ label: '旧会话' }], form: 'recall' }, '回忆'),
+      docEvent(5, { kind: 'plugin', plugin: 'compact', compactionId: 'c-1' }, '', { op: 'replace' }),
+      docEvent(6, { kind: 'plugin', plugin: 'dsh-goal', form: 'notice' }, '目标'),
+    ])
+    expect(folded.boundary).toBe(5)
+    expect(folded.docs.map(doc => [doc.seq, doc.label, doc.role, doc.form, doc.active])).toEqual([
+      [1, 'AGENTS.md', 'inject', 'instructions', false],
+      [4, '旧会话', 'recall', 'recall', false],
+      [6, 'dsh-goal', 'inject', 'notice', true],
+    ])
+  })
+
+  it('keeps every document active when the page holds no checkpoint', () => {
+    const folded = foldDocEvents([docEvent(1, { kind: 'plugin', plugin: 'x' }, '内容')])
+    expect(folded.boundary).toBe(-1)
+    expect(folded.docs[0]?.active).toBe(true)
+  })
+})
+
+describe('mergeDocs', () => {
+  it('dedups by seq with the live fold winning, sorts, and re-derives active', () => {
+    const older = [
+      { seq: 1, time: 1_000, role: 'inject' as const, label: 'old', form: null, text: '旧', active: false },
+      { seq: 2, time: 2_000, role: 'inject' as const, label: 'dup', form: null, text: '旧副本', active: false },
+    ]
+    const live = [
+      { seq: 2, time: 2_000, role: 'inject' as const, label: 'dup-live', form: 'notice' as const, text: '权威副本', active: true },
+      { seq: 3, time: 3_000, role: 'inject' as const, label: 'new', form: null, text: '新', active: true },
+    ]
+    const merged = mergeDocs(older, live, 2)
+    expect(merged.map(doc => [doc.seq, doc.label, doc.active])).toEqual([
+      [1, 'old', false],
+      [2, 'dup-live', false],
+      [3, 'new', true],
+    ])
   })
 })
 

@@ -27,5 +27,5 @@ Independent: the panel contributes nothing to any model request prefix, so mount
 ## Known Limitations and Deferred Work
 
 - **Text files only** — the files tab previews `.md`/`.markdown`/`.txt`; every other file renders as an inert name (no binary or unknown-format read exists). Reads are bounded at the backend's configured maximum, reported with a truncation note.
-- **Bounded history walk** — the context tab re-projects live (session switch, stream advance, or the explicit refresh control) and auto-walks the session history on activation — up to 20 older batches (1,000 messages) — so both sections hold the complete log; anything deeper stays behind the manual paging control.
+- **Bounded out-of-band history** — the context tab re-projects live (session switch, stream advance, or the explicit refresh control) and pulls older history pages through the connection's history RPC on activation — up to 20 pages (1,000 messages), folded privately — so both sections hold the complete log without touching the shared conversation window (the chat keeps its own "load earlier" control); anything deeper stays behind the manual paging control.
 - **Presentation only** — clicking a directory opens it in the OS file manager; the panel never writes files.
