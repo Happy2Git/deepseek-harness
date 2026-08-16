@@ -148,7 +148,7 @@ function makeProps(): {
     gitStatusFor,
     readInjectedDocs,
     compactionBoundary: vi.fn((): number | null => null),
-    hasMoreDocs: vi.fn((): boolean => true),
+    hasMoreDocs: vi.fn((): boolean => false),
     loadOlderDocs: vi.fn(async () => {}),
     sessionCwd: () => '/proj',
   } as PanelRootProps
@@ -269,6 +269,7 @@ describe('PanelRoot', () => {
     const more = hasMoreDocs as ReturnType<typeof vi.fn>
     const loader = loadOlderDocs as ReturnType<typeof vi.fn>
     render(<PanelRoot {...props} />)
+    more.mockReturnValue(true)
     boundary.mockReturnValue(42)
     act(() => { bumpDocsStream() })
     expect(loader).toHaveBeenCalledTimes(1)
@@ -294,12 +295,21 @@ describe('PanelRoot', () => {
 
   it('badges file instructions vs runtime context and pages older documents', async () => {
     const { props } = makeProps()
-    const { readInjectedDocs, loadOlderDocs } = props
+    const { readInjectedDocs, loadOlderDocs, hasMoreDocs } = props
+    ;(hasMoreDocs as ReturnType<typeof vi.fn>).mockReturnValue(true)
     const reader = readInjectedDocs as ReturnType<typeof vi.fn>
     const loader = loadOlderDocs as ReturnType<typeof vi.fn>
     render(<PanelRoot {...props} />)
     expect(screen.getAllByText('指令文件').length).toBe(1)
     expect(screen.getAllByText('动态上下文').length).toBe(1)
+    // The auto-walk pages to the cap first; wait until it settles so the
+    // manual control renders its normal label again.
+    await vi.waitFor(() => {
+      expect(loader).toHaveBeenCalledTimes(20)
+    })
+    await vi.waitFor(() => {
+      expect(screen.queryByText('加载更早的注入文档')).not.toBeNull()
+    })
     const callsBefore = reader.mock.calls.length
     fireEvent.click(screen.getByText('加载更早的注入文档'))
     await act(async () => {
@@ -311,6 +321,7 @@ describe('PanelRoot', () => {
 
   it('offers paging from the empty window state', () => {
     const { props } = makeProps()
+    ;(props.hasMoreDocs as ReturnType<typeof vi.fn>).mockReturnValue(true)
     ;(props.readInjectedDocs as ReturnType<typeof vi.fn>).mockReturnValue([])
     render(<PanelRoot {...props} />)
     expect(document.body.textContent).toContain('当前日志窗口内尚未注入任何上下文文档。')
@@ -532,6 +543,35 @@ describe('PanelRoot', () => {
     })
     expect(gitGraph).toHaveBeenCalledTimes(2)
     expect(workspaceStatus).toHaveBeenCalledTimes(2)
+  })
+
+  it('auto-walks the history until the window is exhausted', async () => {
+    const { props } = makeProps()
+    const { hasMoreDocs, loadOlderDocs } = props
+    const more = hasMoreDocs as ReturnType<typeof vi.fn>
+    const loader = loadOlderDocs as ReturnType<typeof vi.fn>
+    // True until two pages loaded (renders may consume extra reads harmlessly).
+    more.mockImplementation(() => loader.mock.calls.length < 2)
+    render(<PanelRoot {...props} />)
+    await vi.waitFor(() => {
+      expect(loader).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  it('stops the auto-walk at the page cap and walks each session once', async () => {
+    const { props, bumpDocsStream } = makeProps()
+    const { hasMoreDocs, loadOlderDocs } = props
+    const more = hasMoreDocs as ReturnType<typeof vi.fn>
+    const loader = loadOlderDocs as ReturnType<typeof vi.fn>
+    more.mockReturnValue(true)
+    render(<PanelRoot {...props} />)
+    await vi.waitFor(() => {
+      expect(loader).toHaveBeenCalledTimes(20)
+    })
+    // Stream advances never re-walk the same session.
+    act(() => { bumpDocsStream() })
+    await act(async () => { await Promise.resolve() })
+    expect(loader).toHaveBeenCalledTimes(20)
   })
 
   it('opens the file diff in the centered pop-out from a commit row', async () => {
