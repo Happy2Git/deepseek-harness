@@ -11,7 +11,7 @@ A fork of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) th
 A persistent, resizable panel pinned to the right edge of the Web UI, with three tabs:
 
 - **Files (文件夹)** — browse the session's workspace directory with directories-first order, a basename filter, git working-tree status badges, and per-row open/copy actions.
-- **Context (上下文)** — the injected-context documents read from the session log, split into the live window (当前有效) and the compaction history stream (历史流水), with search over both. The view re-projects itself as the session streams and pages one history batch automatically when a compaction checkpoint lands.
+- **Context (上下文)** — the injected-context documents read from the session log, split into the live window (当前有效) and the compaction history stream (历史流水), with search over both. The view re-projects itself as the session streams and auto-walks the session history on activation (up to 1,000 messages), so both sections hold the complete log without manual paging.
 - **Git** — a framed working-tree block (branch position, uncommitted files) above a read-only commit graph in IDE-history style, with a refresh control; expand a commit to see its changed files, click a workspace row or a commit file to open its diff in the centered pop-out. Diff previews are colored by line role (additions, deletions, hunk headers).
 
 ![Files tab](screenshots/01-files-tab.png)
