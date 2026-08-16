@@ -148,7 +148,7 @@ function makeProps(): {
     gitStatusFor,
     readInjectedDocs,
     compactionBoundary: vi.fn((): number | null => null),
-    pullDocsHistory: vi.fn(async () => ({ docs: [], boundary: -1, hasMore: false, firstSeq: null })),
+    fetchDocEvents: vi.fn(async () => ({ docs: [], boundary: -1 })),
     hasMoreDocs: vi.fn((): boolean => false),
     loadOlderDocs: vi.fn(async () => {}),
     sessionCwd: () => '/proj',
@@ -511,16 +511,14 @@ describe('PanelRoot', () => {
     expect(workspaceStatus).toHaveBeenCalledTimes(2)
   })
 
-  it('pulls the complete older history out-of-band and merges it into the sections', async () => {
+  it('fetches the complete history out-of-band and merges it into the sections', async () => {
     const { props } = makeProps()
-    const { pullDocsHistory, loadOlderDocs, hasMoreDocs } = props
-    const pull = pullDocsHistory as ReturnType<typeof vi.fn>
+    const { fetchDocEvents, loadOlderDocs, hasMoreDocs } = props
+    const fetchDocs = fetchDocEvents as ReturnType<typeof vi.fn>
     const loader = loadOlderDocs as ReturnType<typeof vi.fn>
     ;(hasMoreDocs as ReturnType<typeof vi.fn>).mockReturnValue(true)
     const OLD_DOC = { seq: 3, time: 3_000, role: 'inject', label: '早期指令', form: 'instructions', text: '最早注入。', active: false }
-    // One tail page (overlapping the live window, deduped) then one older page.
-    pull.mockResolvedValueOnce({ docs: [...DOCS], boundary: 10, hasMore: true, firstSeq: 5 })
-    pull.mockResolvedValueOnce({ docs: [OLD_DOC], boundary: 10, hasMore: false, firstSeq: null })
+    fetchDocs.mockResolvedValue({ docs: [OLD_DOC], boundary: 10 })
     render(<PanelRoot {...props} />)
     await vi.waitFor(() => {
       expect(document.body.textContent).toContain('早期指令')
@@ -529,22 +527,22 @@ describe('PanelRoot', () => {
     expect(loader).not.toHaveBeenCalled()
   })
 
-  it('caps the out-of-band pull and never pages the shared window', async () => {
+  it('fetches each session once and never pages the shared window', async () => {
     const { props, bumpDocsStream } = makeProps()
-    const { pullDocsHistory, loadOlderDocs, hasMoreDocs } = props
-    const pull = pullDocsHistory as ReturnType<typeof vi.fn>
+    const { fetchDocEvents, loadOlderDocs, hasMoreDocs } = props
+    const fetchDocs = fetchDocEvents as ReturnType<typeof vi.fn>
     const loader = loadOlderDocs as ReturnType<typeof vi.fn>
     ;(hasMoreDocs as ReturnType<typeof vi.fn>).mockReturnValue(true)
-    pull.mockResolvedValue({ docs: [], boundary: -1, hasMore: true, firstSeq: 1 })
+    fetchDocs.mockResolvedValue({ docs: [], boundary: -1 })
     render(<PanelRoot {...props} />)
     await vi.waitFor(() => {
-      expect(pull).toHaveBeenCalledTimes(20)
+      expect(fetchDocs).toHaveBeenCalledTimes(1)
     })
     expect(loader).not.toHaveBeenCalled()
-    // Stream advances never re-pull the same session.
+    // Stream advances never re-fetch the same session.
     act(() => { bumpDocsStream() })
     await act(async () => { await Promise.resolve() })
-    expect(pull).toHaveBeenCalledTimes(20)
+    expect(fetchDocs).toHaveBeenCalledTimes(1)
   })
 
 
