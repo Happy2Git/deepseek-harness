@@ -68,6 +68,9 @@ let currentCapability: { kind: string }
 let listMock: Mock<(path?: string, signal?: AbortSignal) => Promise<DirectoryListing>>
 let readTextMock: Mock<(path: string, signal?: AbortSignal) => Promise<DirectoryRead>>
 let readImageMock: Mock<(path: string, signal?: AbortSignal) => Promise<DirectoryImageRead>>
+/** Doc-event fixtures the /dir/injected-docs route reads (set per test). */
+let persistenceEvents: unknown[] = []
+let liveSessionEvents: unknown[] | undefined
 let fiber: { dispose: () => Promise<void> }
 
 beforeAll(async () => {
@@ -88,6 +91,8 @@ beforeAll(async () => {
   }
   currentCapability = capability
   routes = []
+  ctx.provide('sessionPersistence', { inspect: async () => ({ events: persistenceEvents }) })
+  ctx.provide('sessions', { get: (id: string) => id === 's1' ? { events: liveSessionEvents ?? [] } : undefined })
   ctx.provide('directoryPicker', { capability: () => currentCapability })
   ctx.provide('webServer', {
     host: '127.0.0.1' as const,
@@ -108,6 +113,8 @@ afterEach(() => {
   runNativeCommandMock.mockClear()
   listMock.mockClear()
   readTextMock.mockClear()
+  persistenceEvents = []
+  liveSessionEvents = undefined
   readImageMock.mockClear()
 })
 
@@ -124,7 +131,7 @@ function routeAt(path: string): WebRoute {
 
 describe('route registration', () => {
   it('registers the three exact directory routes', () => {
-    expect(routes.map(route => route.path).sort()).toEqual(['/dir/list', '/dir/open-path', '/dir/read-image', '/dir/read-text'])
+    expect(routes.map(route => route.path).sort()).toEqual(['/dir/injected-docs', '/dir/list', '/dir/open-path', '/dir/read-image', '/dir/read-text'])
     for (const route of routes) expect(route.kind).toBe('exact')
   })
 })
@@ -253,6 +260,38 @@ describe('/dir/open-path', () => {
     await routeAt('/dir/open-path').handler(makeRequest(undefined), res)
     expect(responseStatus(res)).toBe(400)
     expect(runNativeCommandMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('/dir/injected-docs', () => {
+  it('answers the session doc events filtered from the durable log, merged with the live session', async () => {
+    persistenceEvents = [
+      { seq: 0, time: 0, type: 'user/message', data: { source: { kind: 'plugin', plugin: 'a' }, content: [{ type: 'text', text: '第一条' }, { type: 'image' }] } },
+      { seq: 1, time: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '人类消息' }] } },
+    ]
+    liveSessionEvents = [
+      { seq: 1, time: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '人类消息' }] } },
+      { seq: 2, time: 2, type: 'user/message', surfaceOp: { op: 'replace' }, data: { source: { kind: 'plugin', plugin: 'compact', compactionId: 'c-1' }, content: [{ type: 'text', text: '' }] } },
+    ]
+    const res = makeResponse()
+    await routeAt('/dir/injected-docs').handler(makeRequest(JSON.stringify({ sessionId: 's1' })), res)
+    expect(responseStatus(res)).toBe(200)
+    const body = responseBody(res) as { events: unknown[] }
+    expect(body.events).toHaveLength(2)
+    expect(body.events[0]).toMatchObject({ seq: 0, data: { source: { kind: 'plugin' } } })
+    // Text blocks only: the image block never crosses the wire.
+    expect((body.events[0] as { data: { content: unknown[] } }).data.content).toHaveLength(1)
+    expect(body.events[1]).toMatchObject({ seq: 2, surfaceOp: { op: 'replace' } })
+  })
+
+  it('answers an empty fold for an unknown session and 400 for a missing id', async () => {
+    const res = makeResponse()
+    await routeAt('/dir/injected-docs').handler(makeRequest(JSON.stringify({ sessionId: 'ghost' })), res)
+    expect(responseStatus(res)).toBe(200)
+    expect(responseBody(res)).toEqual({ events: [] })
+    const missing = makeResponse()
+    await routeAt('/dir/injected-docs').handler(makeRequest(JSON.stringify({})), missing)
+    expect(responseStatus(missing)).toBe(400)
   })
 })
 

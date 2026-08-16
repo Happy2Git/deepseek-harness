@@ -155,6 +155,76 @@ export async function openPathNative(
   await run('xdg-open', [path], signal)
 }
 
+/** One raw wire event the injected-doc extractor reads (structural; no session-package dependency). */
+interface WireSessionEvent {
+  seq: number
+  time: number
+  type: string
+  surfaceOp?: { op: string } | undefined
+  data?: {
+    source?: { kind?: string } | undefined
+    content?: readonly { type: string; text?: string }[] | undefined
+  }
+}
+
+/** Validate one injected-docs-request body into its session id. */
+function readDocEventsBody(body: unknown): { sessionId: string } {
+  if (typeof body !== 'object' || body === null) throw new RouteError(400, 'missing sessionId')
+  const sessionId = (body as { sessionId?: unknown }).sessionId
+  if (typeof sessionId !== 'string' || sessionId === '') throw new RouteError(400, 'missing sessionId')
+  return { sessionId }
+}
+
+/**
+ * Collect one session's injected-document source events from the complete
+ * durable log: every `user/message` whose source is not the human, plus their
+ * surface op for compaction-checkpoint detection. The client folds these with
+ * the same provenance readers as the live projection. Serves the live
+ * session's unflushed events on top of the persistence store's log, deduped
+ * by seq. Text blocks only: image and tool payloads never cross this wire.
+ * @param ctx - host root context (optional session store + persistence).
+ * @param sessionId - the session's durable id.
+ * @param signal - request lifetime; abort stops the persistence read.
+ * @returns the doc-relevant events, oldest first.
+ */
+async function injectedDocEvents(ctx: Context, sessionId: string, signal: AbortSignal): Promise<WireSessionEvent[]> {
+  const persistence = ctx.get('sessionPersistence') as {
+    inspect(id: string, signal?: AbortSignal): Promise<{ events: readonly WireSessionEvent[] }>
+  } | undefined
+  const sessions = ctx.get('sessions') as {
+    get(id: string): { events: readonly WireSessionEvent[] } | undefined
+  } | undefined
+  let events: readonly WireSessionEvent[] = []
+  if (persistence !== undefined) {
+    events = (await persistence.inspect(sessionId, signal)).events
+  }
+  // The live session holds events persistence has not flushed yet; merge by
+  // seq (the live copy wins for shared seqs) and keep log order.
+  const live = sessions?.get(sessionId)
+  if (live !== undefined) {
+    const bySeq = new Map<number, WireSessionEvent>()
+    for (const event of events) bySeq.set(event.seq, event)
+    for (const event of live.events) bySeq.set(event.seq, event)
+    events = [...bySeq.values()].sort((left, right) => left.seq - right.seq)
+  }
+  const docs: WireSessionEvent[] = []
+  for (const event of events) {
+    if (event.type !== 'user/message') continue
+    if (event.data?.source === undefined || event.data.source.kind === 'user') continue
+    docs.push({
+      seq: event.seq,
+      time: event.time,
+      type: event.type,
+      ...event.surfaceOp === undefined ? {} : { surfaceOp: event.surfaceOp },
+      data: {
+        source: event.data.source,
+        content: (event.data.content ?? []).filter(block => block.type === 'text'),
+      },
+    })
+  }
+  return docs
+}
+
 /** Wrap one route body in the read-validate-answer shape. */
 async function serve(res: ServerResponse, run: () => Promise<unknown>): Promise<void> {
   try {
@@ -227,6 +297,17 @@ export default class DirectoryRoutes {
         })
       },
     }), 'directory-routes: /dir/read-image')
+    ctx.effect(() => ctx.webServer.register({
+      kind: 'exact',
+      path: '/dir/injected-docs',
+      handler: async (req, res) => {
+        const signal = requestSignal(res)
+        await serve(res, async () => {
+          const body = readDocEventsBody(await readJsonBody(req))
+          return { events: await injectedDocEvents(ctx, body.sessionId, signal) }
+        })
+      },
+    }), 'directory-routes: /dir/injected-docs')
     ctx.effect(() => ctx.webServer.register({
       kind: 'exact',
       path: '/dir/open-path',
