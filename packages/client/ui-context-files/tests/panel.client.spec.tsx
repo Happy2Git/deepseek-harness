@@ -229,6 +229,21 @@ describe('PanelRoot', () => {
     expect(history.textContent).not.toContain('new.md')
   })
 
+  it('renders the history stream newest first, matching the live window order', () => {
+    const { props } = makeProps()
+    ;(props.compactionBoundary as ReturnType<typeof vi.fn>).mockReturnValue(5)
+    ;(props.readInjectedDocs as ReturnType<typeof vi.fn>).mockReturnValue([
+      { seq: 1, time: 1_000, role: 'inject', label: 'old1', form: null, text: '最早', active: false },
+      { seq: 3, time: 3_000, role: 'inject', label: 'old2', form: null, text: '次早', active: false },
+      { seq: 6, time: 6_000, role: 'inject', label: 'live', form: null, text: '最新', active: true },
+    ])
+    render(<PanelRoot {...props} />)
+    const active = screen.getByText('当前有效').closest('section')!
+    const history = screen.getByText('历史流水').closest('section')!
+    expect(active.textContent).toContain('live')
+    expect(history.textContent!.indexOf('old2')).toBeLessThan(history.textContent!.indexOf('old1'))
+  })
+
   it('filters both sections by the search query', () => {
     const { props } = makeProps()
     ;(props.readInjectedDocs as ReturnType<typeof vi.fn>).mockReturnValue([
