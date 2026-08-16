@@ -14,17 +14,17 @@
 - **上下文** — 从会话日志读取的注入上下文文档，分为当前有效窗口与压缩历史流水两部分，带搜索；视图随会话事件流实时重投影，会话激活时带外拉取完整历史（最多 1,000 条消息，面板内私有折叠，不动共享对话窗口），两个区块无需手动翻页即持有完整日志。
 - **Git** — 带边框的工作区区块（分支位置、未提交文件）加只读提交图（IDE 历史视图风格），带刷新按钮；展开提交查看变更文件，点击工作区行或提交内文件都在中部弹出 diff。Diff 预览按行角色着色（新增、删除、hunk 头）。
 
-![文件夹标签](screenshots/01-files-tab.png)
-![Git 标签](screenshots/02-git-tab.png)
-![上下文标签](screenshots/03-context-tab.png)
-![文件夹标签，目录在前](screenshots/04-files-tab-dirs-first.png)
-![工作区 diff 预览](screenshots/06-workspace-diff.png)
+![文件夹标签](screenshots/01-files-tab.png?v=3)
+![Git 标签](screenshots/02-git-tab.png?v=3)
+![上下文标签](screenshots/03-context-tab.png?v=3)
+![文件夹标签，目录在前](screenshots/04-files-tab-dirs-first.png?v=3)
+![工作区 diff 预览](screenshots/06-workspace-diff.png?v=3)
 
 ### 面板文件拖入对话
 
 把面板里的文件行拖进对话区，携带的是文件的绝对路径。图片文件在支持图片的模型上会直接读取内容并附加进本条消息；其他模型（或读取失败）则收到路径说明，由 agent 用自己的工具处理。任何情况下都不在工作区复制文件。
 
-![面板文件拖入](screenshots/05-drag-image.png)
+![面板文件拖入](screenshots/05-drag-image.png?v=3)
 
 ### 文本文件拖放录入
 

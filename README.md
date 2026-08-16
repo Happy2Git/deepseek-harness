@@ -14,17 +14,17 @@ A persistent, resizable panel pinned to the right edge of the Web UI, with three
 - **Context (上下文)** — the injected-context documents read from the session log, split into the live window (当前有效) and the compaction history stream (历史流水), with search over both. The view re-projects itself as the session streams and pulls the complete history out-of-band on activation (up to 1,000 messages, folded privately, the conversation window untouched), so both sections hold the complete log without manual paging.
 - **Git** — a framed working-tree block (branch position, uncommitted files) above a read-only commit graph in IDE-history style, with a refresh control; expand a commit to see its changed files, click a workspace row or a commit file to open its diff in the centered pop-out. Diff previews are colored by line role (additions, deletions, hunk headers).
 
-![Files tab](screenshots/01-files-tab.png)
-![Git tab](screenshots/02-git-tab.png)
-![Context tab](screenshots/03-context-tab.png)
-![Files tab, directories first](screenshots/04-files-tab-dirs-first.png)
-![Working-tree diff preview](screenshots/06-workspace-diff.png)
+![Files tab](screenshots/01-files-tab.png?v=3)
+![Git tab](screenshots/02-git-tab.png?v=3)
+![Context tab](screenshots/03-context-tab.png?v=3)
+![Files tab, directories first](screenshots/04-files-tab-dirs-first.png?v=3)
+![Working-tree diff preview](screenshots/06-workspace-diff.png?v=3)
 
 ### Drag panel files onto the conversation
 
 File rows in the panel drag their absolute path into the conversation. For image files on an image-capable model, the image content is read and attached to the message directly; any other model (or a read failure) receives the path sentence, which the agent can act on with its tools. Nothing is copied into the workspace.
 
-![Panel file drag](screenshots/05-drag-image.png)
+![Panel file drag](screenshots/05-drag-image.png?v=3)
 
 ### Text-file drop intake
 
