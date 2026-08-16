@@ -75,6 +75,12 @@ const WORKSPACE: GitWorkspaceStatus = {
   truncated: false,
 }
 
+/** The fetchDocEvents mock's exact call/assert shape. */
+type FetchedFold = { docs: ContextDoc[]; boundary: number }
+type FetchDocsMock = ReturnType<
+  typeof vi.fn<(sessionId: SessionId, signal: AbortSignal) => Promise<FetchedFold>>
+>
+
 /** Build the complete props share around one fresh store instance. */
 function makeProps(): {
   props: PanelRootProps
@@ -87,21 +93,25 @@ function makeProps(): {
   showWorkspaceDiff: ReturnType<typeof vi.fn>
   gitStatusFor: ReturnType<typeof vi.fn>
   readInjectedDocs: ReturnType<typeof vi.fn>
+  fetchDocEvents: FetchDocsMock
   bumpDocsStream: () => void
+  setCurrent: (id: SessionId) => void
 } {
   const instance = createPanelStore().create()
   const current = 's1' as SessionId
   const sessionState = {
-    ids: [current],
+    ids: [current, 's2' as SessionId],
     byId: {
       [current]: { id: current, displayTitle: '测试会话', cwd: '/proj', running: false, blank: false, updatedAt: 1 },
+      s2: { id: 's2' as SessionId, displayTitle: '另一个会话', cwd: '/proj', running: false, blank: false, updatedAt: 1 },
     },
     current,
     phase: 'ready',
     subagentsByParent: {},
     jobsBySession: {},
     currentAddress: undefined,
-  } as SessionListState
+  }
+  const setCurrent = (id: SessionId): void => { sessionState.current = id }
   // The docs-stream stub: a pushable snapshot the bound hook reads; bumping it
   // simulates the session stream advancing (a new reference, as the runtime
   // republishes per event batch).
@@ -119,6 +129,8 @@ function makeProps(): {
     for (const fn of [...streamListeners]) fn()
   }
   const readInjectedDocs = vi.fn((): ContextDoc[] => DOCS)
+  const fetchDocEvents = vi.fn<(sessionId: SessionId, signal: AbortSignal) => Promise<{ docs: ContextDoc[]; boundary: number }>>(
+    async () => ({ docs: [], boundary: -1 }))
   const listDirectory = vi.fn<(path?: string, signal?: AbortSignal) => Promise<DirectoryListing>>(async () => LISTING)
   const readText = vi.fn(async (path: string): Promise<DirectoryRead> => {
     if (path.endsWith('.bin')) throw new Error('not a text file')
@@ -131,7 +143,7 @@ function makeProps(): {
   const showWorkspaceDiff = vi.fn(async (): Promise<GitFileDiff> => ({ path: 'README.md', diff: '+working line\n', truncated: false }))
   const gitStatusFor = vi.fn(async (): Promise<GitStatusFile[]> => STATUS_FILES)
   const props = {
-    useSessions: selector => selector(sessionState),
+    useSessions: selector => selector(sessionState as SessionListState),
     useWorkspaces: () => ({}) as never,
     useStore: hookOf(instance.store),
     actions: instance.actions,
@@ -148,14 +160,14 @@ function makeProps(): {
     gitStatusFor,
     readInjectedDocs,
     compactionBoundary: vi.fn((): number | null => null),
-    fetchDocEvents: vi.fn(async () => ({ docs: [], boundary: -1 })),
+    fetchDocEvents,
     hasMoreDocs: vi.fn((): boolean => false),
     loadOlderDocs: vi.fn(async () => {}),
     sessionCwd: () => '/proj',
   } as PanelRootProps
   return {
     props, listDirectory, readText, gitGraph, gitShowCommit, workspaceStatus, showFileDiff, showWorkspaceDiff,
-    gitStatusFor, readInjectedDocs, bumpDocsStream,
+    gitStatusFor, readInjectedDocs, fetchDocEvents, bumpDocsStream, setCurrent,
   }
 }
 
@@ -241,7 +253,7 @@ describe('PanelRoot', () => {
     const active = screen.getByText('当前有效').closest('section')!
     const history = screen.getByText('历史流水').closest('section')!
     expect(active.textContent).toContain('live')
-    expect(history.textContent!.indexOf('old2')).toBeLessThan(history.textContent!.indexOf('old1'))
+    expect(history.textContent.indexOf('old2')).toBeLessThan(history.textContent.indexOf('old1'))
   })
 
   it('filters both sections by the search query', () => {
@@ -527,12 +539,12 @@ describe('PanelRoot', () => {
   })
 
   it('fetches the complete history out-of-band and merges it into the sections', async () => {
-    const { props } = makeProps()
-    const { fetchDocEvents, loadOlderDocs, hasMoreDocs } = props
-    const fetchDocs = fetchDocEvents as ReturnType<typeof vi.fn>
+    const { props, fetchDocEvents } = makeProps()
+    const { loadOlderDocs, hasMoreDocs } = props
+    const fetchDocs = fetchDocEvents
     const loader = loadOlderDocs as ReturnType<typeof vi.fn>
     ;(hasMoreDocs as ReturnType<typeof vi.fn>).mockReturnValue(true)
-    const OLD_DOC = { seq: 3, time: 3_000, role: 'inject', label: '早期指令', form: 'instructions', text: '最早注入。', active: false }
+    const OLD_DOC: ContextDoc = { seq: 3, time: 3_000, role: 'inject', label: '早期指令', form: 'instructions', text: '最早注入。', active: false }
     fetchDocs.mockResolvedValue({ docs: [OLD_DOC], boundary: 10 })
     render(<PanelRoot {...props} />)
     await vi.waitFor(() => {
@@ -543,9 +555,9 @@ describe('PanelRoot', () => {
   })
 
   it('fetches each session once and never pages the shared window', async () => {
-    const { props, bumpDocsStream } = makeProps()
-    const { fetchDocEvents, loadOlderDocs, hasMoreDocs } = props
-    const fetchDocs = fetchDocEvents as ReturnType<typeof vi.fn>
+    const { props, bumpDocsStream, fetchDocEvents } = makeProps()
+    const { loadOlderDocs, hasMoreDocs } = props
+    const fetchDocs = fetchDocEvents
     const loader = loadOlderDocs as ReturnType<typeof vi.fn>
     ;(hasMoreDocs as ReturnType<typeof vi.fn>).mockReturnValue(true)
     fetchDocs.mockResolvedValue({ docs: [], boundary: -1 })
@@ -560,6 +572,36 @@ describe('PanelRoot', () => {
     expect(fetchDocs).toHaveBeenCalledTimes(1)
   })
 
+
+  it('serves an already-fetched session from the per-session cache on switch-back', async () => {
+    const { props, fetchDocEvents, bumpDocsStream, setCurrent } = makeProps()
+    const fetchDocs = fetchDocEvents
+    ;(props.hasMoreDocs as ReturnType<typeof vi.fn>).mockReturnValue(true)
+    fetchDocs.mockImplementation(async (id: SessionId) => {
+      if (id === 's1') {
+        return { docs: [{ seq: 7, time: 7_000, role: 'inject', label: 'A 会话文档', form: null, text: 'A', active: false }], boundary: 10 }
+      }
+      return { docs: [{ seq: 8, time: 8_000, role: 'inject', label: 'B 会话文档', form: null, text: 'B', active: false }], boundary: 20 }
+    })
+    render(<PanelRoot {...props} />)
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('A 会话文档')
+    })
+    // Switch to s2, then back to s1: the cache serves s1 instantly, and s2's
+    // documents never leak into s1.
+    act(() => { setCurrent('s2' as SessionId) })
+    act(() => { bumpDocsStream() })
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('B 会话文档')
+    })
+    const callsAfterS2 = fetchDocs.mock.calls.length
+    act(() => { setCurrent('s1' as SessionId) })
+    act(() => { bumpDocsStream() })
+    await act(async () => { await Promise.resolve() })
+    expect(fetchDocs).toHaveBeenCalledTimes(callsAfterS2)
+    expect(document.body.textContent).toContain('A 会话文档')
+    expect(document.body.textContent).not.toContain('B 会话文档')
+  })
 
   it('opens the file diff in the centered pop-out from a commit row', async () => {
     const { props, showFileDiff } = makeProps()

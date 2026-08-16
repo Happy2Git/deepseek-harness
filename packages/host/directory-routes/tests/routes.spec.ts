@@ -71,6 +71,8 @@ let readImageMock: Mock<(path: string, signal?: AbortSignal) => Promise<Director
 /** Doc-event fixtures the /dir/injected-docs route reads (set per test). */
 let persistenceEvents: unknown[] = []
 let liveSessionEvents: unknown[] | undefined
+let snapshotRows: { header: { id: string }; revision: unknown }[] = []
+let inspectMock: ReturnType<typeof vi.fn>
 let fiber: { dispose: () => Promise<void> }
 
 beforeAll(async () => {
@@ -91,7 +93,8 @@ beforeAll(async () => {
   }
   currentCapability = capability
   routes = []
-  ctx.provide('sessionPersistence', { inspect: async () => ({ events: persistenceEvents }) })
+  inspectMock = vi.fn(async () => ({ events: persistenceEvents }))
+  ctx.provide('sessionPersistence', { inspect: inspectMock, listSnapshots: async () => snapshotRows })
   ctx.provide('sessions', { get: (id: string) => id === 's1' ? { events: liveSessionEvents ?? [] } : undefined })
   ctx.provide('directoryPicker', { capability: () => currentCapability })
   ctx.provide('webServer', {
@@ -115,6 +118,8 @@ afterEach(() => {
   readTextMock.mockClear()
   persistenceEvents = []
   liveSessionEvents = undefined
+  snapshotRows = []
+  inspectMock.mockClear()
   readImageMock.mockClear()
 })
 
@@ -273,6 +278,7 @@ describe('/dir/injected-docs', () => {
       { seq: 1, time: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '人类消息' }] } },
       { seq: 2, time: 2, type: 'user/message', surfaceOp: { op: 'replace' }, data: { source: { kind: 'plugin', plugin: 'compact', compactionId: 'c-1' }, content: [{ type: 'text', text: '' }] } },
     ]
+    snapshotRows = [{ header: { id: 's1' }, revision: 'rev-1' }]
     const res = makeResponse()
     await routeAt('/dir/injected-docs').handler(makeRequest(JSON.stringify({ sessionId: 's1' })), res)
     expect(responseStatus(res)).toBe(200)
@@ -282,6 +288,19 @@ describe('/dir/injected-docs', () => {
     // Text blocks only: the image block never crosses the wire.
     expect((body.events[0] as { data: { content: unknown[] } }).data.content).toHaveLength(1)
     expect(body.events[1]).toMatchObject({ seq: 2, surfaceOp: { op: 'replace' } })
+    // A second request against the same revision serves the memo: the full
+    // log read runs once.
+    const again = makeResponse()
+    await routeAt('/dir/injected-docs').handler(makeRequest(JSON.stringify({ sessionId: 's1' })), again)
+    expect(responseStatus(again)).toBe(200)
+    expect(responseBody(again)).toEqual(body)
+    expect(inspectMock).toHaveBeenCalledTimes(1)
+    // A revision change invalidates the memo.
+    snapshotRows = [{ header: { id: 's1' }, revision: 'rev-2' }]
+    const bumped = makeResponse()
+    await routeAt('/dir/injected-docs').handler(makeRequest(JSON.stringify({ sessionId: 's1' })), bumped)
+    expect(responseStatus(bumped)).toBe(200)
+    expect(inspectMock).toHaveBeenCalledTimes(2)
   })
 
   it('answers an empty fold for an unknown session and 400 for a missing id', async () => {
