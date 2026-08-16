@@ -236,7 +236,7 @@ describe('/git/show-commit', () => {
 
   it('answers 400 for a relative cwd', async () => {
     const res = makeResponse()
-    await routeAt('/git/show-commit').handler(makeRequest(JSON.stringify({ cwd: 'repo', hash: 'abc' })), res)
+    await routeAt('/git/show-commit').handler(makeRequest(JSON.stringify({ cwd: 'repo', hash: 'abc1234' })), res)
     expect(responseStatus(res)).toBe(400)
     expect(responseBody(res)).toEqual({ error: { message: 'cwd must be an absolute path' } })
     expect(showCommitMock).not.toHaveBeenCalled()
@@ -267,17 +267,27 @@ describe('/git/workspace', () => {
   })
 })
 
+describe('/git/show-commit', () => {
+  it('answers 400 for a non-hash value in the hash slot', async () => {
+    const res = makeResponse()
+    await routeAt('/git/show-commit').handler(makeRequest(JSON.stringify({ cwd: '/repo', hash: '--output=/tmp/owned' })), res)
+    expect(responseStatus(res)).toBe(400)
+    expect(responseBody(res)).toEqual({ error: { message: 'hash must be a git commit hash' } })
+    expect(showCommitMock).not.toHaveBeenCalled()
+  })
+})
+
 describe('/git/show-diff', () => {
   it('delegates cwd, hash, and path to showFileDiff', async () => {
     const res = makeResponse()
-    await routeAt('/git/show-diff').handler(makeRequest(JSON.stringify({ cwd: '/repo', hash: 'abc', path: 'README.md' })), res)
-    expect(showDiffMock).toHaveBeenCalledWith('/repo', 'abc', 'README.md', expect.any(AbortSignal))
+    await routeAt('/git/show-diff').handler(makeRequest(JSON.stringify({ cwd: '/repo', hash: 'abc1234', path: 'README.md' })), res)
+    expect(showDiffMock).toHaveBeenCalledWith('/repo', 'abc1234', 'README.md', expect.any(AbortSignal))
     expect(responseStatus(res)).toBe(200)
   })
 
   it('answers 400 for a missing path', async () => {
     const res = makeResponse()
-    await routeAt('/git/show-diff').handler(makeRequest(JSON.stringify({ cwd: '/repo', hash: 'abc' })), res)
+    await routeAt('/git/show-diff').handler(makeRequest(JSON.stringify({ cwd: '/repo', hash: 'abc1234' })), res)
     expect(responseStatus(res)).toBe(400)
     expect(responseBody(res)).toEqual({ error: { message: 'missing path' } })
     expect(showDiffMock).not.toHaveBeenCalled()
@@ -285,7 +295,14 @@ describe('/git/show-diff', () => {
 
   it('answers 400 for a relative cwd', async () => {
     const res = makeResponse()
-    await routeAt('/git/show-diff').handler(makeRequest(JSON.stringify({ cwd: 'repo', hash: 'abc', path: 'x' })), res)
+    await routeAt('/git/show-diff').handler(makeRequest(JSON.stringify({ cwd: 'repo', hash: 'abc1234', path: 'x' })), res)
+    expect(responseStatus(res)).toBe(400)
+    expect(showDiffMock).not.toHaveBeenCalled()
+  })
+
+  it('answers 400 for a non-hash value in the hash slot', async () => {
+    const res = makeResponse()
+    await routeAt('/git/show-diff').handler(makeRequest(JSON.stringify({ cwd: '/repo', hash: '--output=/tmp/owned', path: 'x' })), res)
     expect(responseStatus(res)).toBe(400)
     expect(showDiffMock).not.toHaveBeenCalled()
   })
@@ -310,6 +327,13 @@ describe('/git/workspace-diff', () => {
   it('answers 400 for a relative cwd', async () => {
     const res = makeResponse()
     await routeAt('/git/workspace-diff').handler(makeRequest(JSON.stringify({ cwd: 'repo', path: 'x' })), res)
+    expect(responseStatus(res)).toBe(400)
+    expect(workspaceDiffMock).not.toHaveBeenCalled()
+  })
+
+  it('answers 400 for a path that escapes the repository', async () => {
+    const res = makeResponse()
+    await routeAt('/git/workspace-diff').handler(makeRequest(JSON.stringify({ cwd: '/repo', path: '../../etc/passwd' })), res)
     expect(responseStatus(res)).toBe(400)
     expect(workspaceDiffMock).not.toHaveBeenCalled()
   })
