@@ -42,12 +42,18 @@ function renderDiff(diffs: readonly FileDiff[]): string[] {
   return lines
 }
 
-/** One-line header for a pending tool call. */
+/** One-line header for a pending tool call.
+ * @param view - the pending tool call's presentation view.
+ * @returns the single header line for the call.
+ */
 export function renderCall(view: ToolCallView): string {
   return `◇ ${escapeControls(view.title)}`
 }
 
-/** Body lines for a completed tool call. */
+/** Body lines for a completed tool call.
+ * @param view - the completed tool call's presentation view.
+ * @returns the terminal body lines for the call's card kind.
+ */
 export function renderResult(view: ToolResultView): string[] {
   switch (view.card) {
     case 'generic': {

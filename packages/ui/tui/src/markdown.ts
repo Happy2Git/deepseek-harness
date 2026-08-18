@@ -12,7 +12,10 @@ const BOLD = '\x1b[1m'
 const DIM = '\x1b[2m'
 const RESET = '\x1b[0m'
 
-/** Escape C0/C1 controls other than LF/TAB so model text cannot inject terminal sequences. */
+/** Escape C0/C1 controls other than LF/TAB so model text cannot inject terminal sequences.
+ * @param text - the text to escape.
+ * @returns the escaped text with control characters replaced.
+ */
 export function escapeControls(text: string): string {
   let out = ''
   for (const ch of text) {
@@ -112,7 +115,10 @@ function block(token: MarkedToken): string[] {
   }
 }
 
-/** Render markdown source into ANSI-styled plain text, one line per block. */
+/** Render markdown source into ANSI-styled plain text, one line per block.
+ * @param source - the markdown source to render.
+ * @returns the ANSI-styled plain-text rendering, one line per block.
+ */
 export function formatMarkdown(source: string): string {
   return builtinTokens(lexer(source)).flatMap(block).join('\n')
 }

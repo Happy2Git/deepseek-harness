@@ -13,6 +13,14 @@ dsh --profile cli --resume <id>
 
 The `cli` profile auto-initializes on first use from the shipped template, like `web` and `headless`. The bundle's `startup` entry parses the app-owned `--resume` flag; the front door resumes the persisted session through the agent registry.
 
+## Model Experience
+
+Indirectly, through the base bundle's tools and the mounted TUI front door, each of which owns its own model-facing behavior.
+
+#### KV Cache effect
+
+The bundle's startup entry parses the app-owned `--resume` flag and mounts child plugins without composing request content, so it does not invalidate or extend the request prefix a provider may reuse.
+
 ## Known Limitations and Deferred Work
 
 - The terminal-local `/model` selector and richer transcript rendering (markdown, tool cards) land in later changes; `/plan`, `/compact`, and `/goal` already arrive through the base bundle's command plugins.

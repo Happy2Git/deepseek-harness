@@ -48,15 +48,28 @@ export const name = 'cli-tui'
 
 /** Status-line value registry exposed to other plugins as `ctx.tuiPrompt`. */
 export interface TuiPromptService {
-  /** Register one footer fragment by name; the returned disposer removes it. */
+  /**
+   * Register one footer fragment by name; the returned disposer removes it.
+   * @param name - the fragment's name.
+   * @param fragment - the status-line fragment text to register.
+   * @returns a disposer that removes the registered fragment.
+   */
   register(name: string, fragment: string): () => void
-  /** Current registered fragments in insertion order. */
+  /**
+   * Current registered fragments in insertion order.
+   * @returns the registered fragments keyed by name, in insertion order.
+   */
   values(): ReadonlyMap<string, string>
 }
 
 /** Modal-overlay front door exposed to other plugins as `ctx.tui`. */
 export interface TuiExtensionService {
-  /** Open one fullscreen overlay component; the returned handle controls it. */
+  /**
+   * Open one fullscreen overlay component; the returned handle controls it.
+   * @param component - the fullscreen overlay component to open.
+   * @param options - optional overlay presentation options.
+   * @returns the handle that controls the opened overlay.
+   */
   openOverlay(component: Component, options?: OverlayOptions): OverlayHandle
 }
 

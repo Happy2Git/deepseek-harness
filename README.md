@@ -22,13 +22,13 @@ See [dsh-compass](https://github.com/Happy2Git/dsh-compass) for requirements, in
 
 ## Run
 
-From npm (upstream package):
+### From npm (upstream package)
 
 ```sh
 npx @deepseek-ai/dsh web
 ```
 
-From source:
+### Run from source
 
 ```sh
 git clone https://github.com/Happy2Git/deepseek-harness.git

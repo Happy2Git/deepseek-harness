@@ -22,13 +22,13 @@ pnpm dsh plugin --profile web add /path/to/dsh-compass
 
 ## 运行
 
-通过 npm（上游包）：
+### 通过 npm（上游包）
 
 ```sh
 npx @deepseek-ai/dsh web
 ```
 
-从源码运行：
+### 从源码运行
 
 ```sh
 git clone https://github.com/Happy2Git/deepseek-harness.git

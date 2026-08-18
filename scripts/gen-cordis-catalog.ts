@@ -100,6 +100,8 @@ export const SERVICE_PAGE: Record<string, string> = {
   tokenMeter: 'token-meter.md',
   toolResultPruner: 'compaction.md',
   tools: 'tools.md',
+  tui: 'tui.md',
+  tuiPrompt: 'tui.md',
   typert: 'typert.md',
   typertGateway: 'typert.md',
   userQuestions: 'user-questions.md',
@@ -492,14 +494,18 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
 export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
   'AbortSignal',
   'AsyncIterable',
+  'Component',
   'Context',
   'Error',
   'Map',
+  'OverlayHandle',
+  'OverlayOptions',
   'Partial',
   'Pick',
   'Promise',
-  'Record',
   'Readonly',
+  'ReadonlyMap',
+  'Record',
   'Uint8Array',
 ])
 

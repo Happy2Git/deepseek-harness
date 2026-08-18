@@ -24,7 +24,11 @@ dsh --profile cli --resume <id>
 
 ## Model Experience
 
-This adapter adds no model-visible content of its own: terminal presentation, command execution, and question/approval rendering are UI-plane only. Submissions the user makes still reach the model through the normal `followup`/`steer` paths with their usual token effect.
+None, as the TUI renders the durable session transcript and answers the interaction seams on the terminal plane without composing any model request content.
+
+#### KV Cache effect
+
+The TUI registers no prompt, schema, or message text of its own and never rewrites the assembled request, so it does not invalidate or extend the request prefix a provider may reuse.
 
 ## Known Limitations and Deferred Work
 

@@ -13,6 +13,14 @@ dsh --profile cli --resume <id>
 
 `cli` profile 首次使用会像 `web`、`headless` 一样从内置模板自动初始化。本 bundle 的 `startup` 入口解析 app 自持的 `--resume` 旗标；前门经 agent 注册表恢复持久化会话。
 
+## 模型体验
+
+间接，经由 base bundle 的工具与所挂载的 TUI 前门，各自拥有各自的模型可见行为。
+
+#### KV 缓存影响
+
+本 bundle 的 `startup` 入口只解析 app 自持的 `--resume` 旗标并挂载子插件，不组装请求内容，因此不会使 provider 可能复用的请求前缀失效或延长。
+
 ## 已知限制与后续工作
 
 - 终端本地的 `/model` 选择器与更丰富的 transcript 渲染（markdown、工具卡）在后续改动中落地；`/plan`、`/compact`、`/goal` 已由 base bundle 的命令插件提供。
