@@ -105,7 +105,7 @@ function displayCrumbs(listing: DirectoryListing, homeLabel: string): DirectoryE
   const homeIndex = listing.crumbs.findIndex(crumb => crumb.path === listing.home)
   if (homeIndex === -1) return listing.crumbs
   const tail = listing.crumbs.slice(homeIndex + 1)
-  return [{ name: homeLabel, path: listing.home, hidden: false, kind: 'directory' }, ...tail]
+  return [{ name: homeLabel, path: listing.home, hidden: false }, ...tail]
 }
 
 /**
@@ -193,16 +193,13 @@ function visibleEntries(
   showHidden: boolean,
   filterPrefix: string | null,
 ): readonly DirectoryEntry[] {
-  // The picker selects folders: file rows exist in the listing (the shared
-  // browse capability serves file viewers too) but never enter this view.
-  const directories = entries.filter(entry => entry.kind === 'directory')
   const needle = filterPrefix === null ? '' : filterPrefix.toLowerCase()
   // A dot-led prefix names hidden entries explicitly, so matching ones
   // surface even while the toggle keeps the rest hidden.
   const displayable = (entry: DirectoryEntry): boolean => showHidden || !entry.hidden || needle.startsWith('.')
   const matches = (entry: DirectoryEntry): boolean => displayable(entry) && entry.name.toLowerCase().startsWith(needle)
-  const narrowing = needle !== '' && directories.some(matches)
-  return directories.filter((entry) => {
+  const narrowing = needle !== '' && entries.some(matches)
+  return entries.filter((entry) => {
     if (entry.path === selectedPath) return true
     if (narrowing) return matches(entry)
     return showHidden || !entry.hidden
@@ -627,7 +624,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         if (seq !== requestSeq.current) return
         setParent(level)
         setLoading(false)
-        select({ name, path: createdPath, hidden: false, kind: 'directory' })
+        select({ name, path: createdPath, hidden: false })
       }, (reason: unknown) => {
         /* v8 ignore next -- same fence as navigate/select; the modal blocks superseding input */
         if (seq !== requestSeq.current) return

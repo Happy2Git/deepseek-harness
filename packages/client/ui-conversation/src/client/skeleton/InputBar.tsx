@@ -10,7 +10,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  IconCloseOutline16, IconPlusOutline16, IconWarningOutline16, Toast, Tooltip,
+  IconPlusOutline16, IconWarningOutline16, Toast, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { AttachmentRail, DropOverlay, ImageLightbox } from '@deepseek-ai/dsh-client-ui-attachment'
 import type { AttachmentRailItem } from '@deepseek-ai/dsh-client-ui-attachment'
@@ -37,53 +37,9 @@ import css from './InputBar.module.css'
 /** Decoration product of the no-session state (no machine, empty draft). */
 const INERT_DECORATIONS: DraftDecorations = { token: null, chips: [], textRefs: [], hint: null }
 
-/** Text-file drop intake bound (256KB, the directory-picker read bound). */
-const MAX_TEXT_FILE_BYTES = 262144
-/** Total text-file chip bytes bound (1 MiB) across one pending send. */
-const MAX_TEXT_FILES_TOTAL_BYTES = 1024 * 1024
-/** Total text-file chip count bound. */
-const MAX_TEXT_FILES = 20
-
-/**
- * Drag payload type for panel file rows (ui-context-files sets it on drag
- * start with the absolute host path as the value). Literal duplicated in
- * ui-context-files' FileTree (cross-package wire contract; neither package
- * may import the other).
- */
-const PANEL_PATH_MIME = 'application/x-dsh-path'
-
-/** True when the buffer carries a NUL byte — the binary marker text intake refuses. */
-function hasNulByte(buffer: ArrayBuffer): boolean {
-  const bytes = new Uint8Array(buffer)
-  for (let i = 0; i < bytes.length; i++) {
-    if (bytes[i] === 0) return true
-  }
-  return false
-}
-
-/** Decode the route's canonical base64 into browser bytes for a File. */
-function decodeBase64Bytes(data: string): Uint8Array<ArrayBuffer> {
-  const binary = atob(data)
-  const bytes = new Uint8Array(new ArrayBuffer(binary.length))
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return bytes
-}
-
-/** Append one intake sentence to the draft as its own paragraph (the file-chip fold shape). */
-function appendSentence(draft: string, sentence: string): string {
-  return draft === '' ? sentence : `${draft}\n\n${sentence}`
-}
-
 /** Rail thumbnail carrying its source attachment for the open/remove callbacks. */
 interface ComposerRailItem extends AttachmentRailItem {
   attachment: ComposerAttachment
-}
-
-/** One parked dropped text file: its snapshot text plus original byte size for the total cap. */
-interface PendingTextFile {
-  name: string
-  content: string
-  size: number
 }
 
 export type InputBarProps = ComposerBarProps
@@ -95,7 +51,6 @@ export function InputBar({
   useProjection, sessionId, variant, disabled: inert = false, blocked,
   workspacePickerOpen = false, onRequestWorkspace,
   placeholder, accessory, overlay, leftItems, rightItems, footer,
-  readImageByPath, sessionImageInput,
 }: InputBarProps) {
   const input = useInput(s => s)
   const notice = useNotices(s => s)
@@ -118,15 +73,7 @@ export function InputBar({
     () => input === undefined || draftImages === undefined ? [] : draftImages(input.imageIds),
     [draftImages, input?.imageIds],
   )
-  // Pending dropped text files: read into memory on drop, shown as chips, and
-  // folded into the message only at submit — the input box never holds their
-  // (potentially large) content.
-  const [pendingFiles, setPendingFiles] = useState<readonly PendingTextFile[]>([])
-  // The ref is the pre-check's accounting source (settled chips plus in-flight
-  // reservations); every mutation point updates it in the same step as the
-  // state, without re-subscribing the document-level drag/drop listeners.
-  const pendingFilesRef = useRef<readonly PendingTextFile[]>(pendingFiles)
-  const empty = draft.trim() === '' && attachments.length === 0 && pendingFiles.length === 0
+  const empty = draft.trim() === '' && attachments.length === 0
   const [preview, setPreview] = useState<ComposerAttachment | null>(null)
   const [dragActive, setDragActive] = useState(false)
   // Transient error banner (image-intake rejections and prompt failures): the
@@ -400,7 +347,6 @@ export function InputBar({
       keyboard.steerQueue()
       return
     }
-    foldPendingFiles()
     keyboard.submit(resolveSubmitMode(
       running,
       accelerated ? 'accelerated' : 'enter',
@@ -518,146 +464,34 @@ export function InputBar({
     if (rejected !== null) showToast(rejected)
   }, [addImages, attachments, imageLimits, showToast, t])
 
-  // Text-file drop intake: read bounded text files into memory and park them as
-  // chips; their content folds into the message only at submit, so the input
-  // box never holds a large file's body (the OS drag exposes content, not a
-  // path). Per-file, total-byte, and total-count checks run before any read —
-  // against a ref that reserves each accepted batch's bytes and count while its
-  // reads are in flight, so a rapid second drop cannot slip past a first batch
-  // that has not settled yet; oversized or unreadable batches are announced and
-  // skipped whole.
-  const intakeTextFiles = useCallback((files: readonly File[]): void => {
-    if (files.length === 0) return
-    const oversized = files.find(file => file.size > MAX_TEXT_FILE_BYTES)
-    if (oversized !== undefined) {
-      showToast(t('file.tooLarge', { name: oversized.name }))
-      return
-    }
-    const batchBytes = files.reduce((sum, file) => sum + file.size, 0)
-    const held = pendingFilesRef.current
-    const heldBytes = held.reduce((sum, file) => sum + file.size, 0)
-    if (heldBytes + batchBytes > MAX_TEXT_FILES_TOTAL_BYTES) {
-      showToast(t('file.totalTooLarge'))
-      return
-    }
-    if (held.length + files.length > MAX_TEXT_FILES) {
-      showToast(t('file.tooMany'))
-      return
-    }
-    // Reserve the batch in the ref before the async reads, so a concurrent
-    // drop's pre-checks count it. The reservation is replaced by the readable
-    // chips (or rolled back) when the batch settles.
-    const names = new Set(files.map(file => file.name))
-    pendingFilesRef.current = [...held, ...files.map(file => ({ name: file.name, content: '', size: file.size }))]
-    void Promise.all(files.map(async (file): Promise<PendingTextFile | null> => {
-      try {
-        const buffer = await file.arrayBuffer()
-        if (hasNulByte(buffer)) return null
-        const content = new TextDecoder().decode(buffer).replace(/\s+$/, '')
-        return { name: file.name, content, size: file.size }
-      } catch {
-        return null
-      }
-    })).then((items) => {
-      const valid = items.filter((item): item is PendingTextFile => item !== null)
-      pendingFilesRef.current = pendingFilesRef.current.filter(item => !names.has(item.name)).concat(valid)
-      if (valid.length === 0) {
-        showToast(t('file.unreadable'))
-        return
-      }
-      setPendingFiles(current => [...current, ...valid])
-    })
-  }, [showToast, t])
-
-  /** Remove one parked file chip. */
-  const removePendingFile = useCallback((name: string): void => {
-    pendingFilesRef.current = pendingFilesRef.current.filter(item => item.name !== name)
-    setPendingFiles(current => current.filter(item => item.name !== name))
-  }, [])
-
-  /** Fold parked file chips into the draft, then clear them (submit-time only). */
-  const foldPendingFiles = useCallback((): void => {
-    if (pendingFiles.length === 0 || keyboard === undefined) return
-    const fileText = pendingFiles.map(file => `\`\`\`${file.name}\n${file.content}\n\`\`\``).join('\n\n')
-    const currentDraft = keyboard.snapshot.draft
-    keyboard.setDraft(currentDraft === '' ? fileText : `${currentDraft}\n\n${fileText}`)
-    pendingFilesRef.current = []
-    setPendingFiles([])
-  }, [pendingFiles, keyboard])
-
-  // Panel file-row image intake: the drag carries an absolute host path (the
-  // browser never saw the bytes). An image-capable session reads the file
-  // through the plugin-owned route and attaches it to the message; any other
-  // session, or any read failure, degrades to the path sentence alone, which
-  // the agent can still act on with its tools.
-  const intakePanelPath = useCallback((path: string): void => {
-    if (keyboard === undefined) return
-    void (async () => {
-      try {
-        const capable = sessionImageInput === undefined ? null : await sessionImageInput()
-        const canAttach = capable === true && readImageByPath !== undefined && addImages !== undefined
-        if (!canAttach) {
-          keyboard.setDraft(appendSentence(keyboard.snapshot.draft, t('panelImage.pathOnly', { path })))
-          return
-        }
-        const read = await readImageByPath(path)
-        if (!read.ok) {
-          showToast(read.status === 413 && imageLimits !== undefined
-            ? t('image.fileTooLarge', { size: imageSizeText(imageLimits.maxImageBytes) })
-            : t('panelImage.unreadable'))
-          return
-        }
-        const name = /[\\/]/.test(path) ? path.split(/[\\/]/).at(-1) ?? 'image' : path
-        intakeImages([new File([decodeBase64Bytes(read.data)], name, { type: read.mediaType })])
-        keyboard.setDraft(appendSentence(keyboard.snapshot.draft, t('panelImage.attached', { path })))
-      } catch {
-        // Transport failure of the capability probe or the read route: the
-        // path reference alone still reaches the model, so degrade to it.
-        keyboard.setDraft(appendSentence(keyboard.snapshot.draft, t('panelImage.pathOnly', { path })))
-      }
-    })()
-  }, [keyboard, sessionImageInput, readImageByPath, addImages, intakeImages, showToast, imageLimits, t])
-
   // Whole-page file-drop intake (DeepSeek Chat behavior): the listeners live
-  // on the document so a drop anywhere over the window adds images or text
-  // files, not only over the composer card. Safe as document-level state: the
-  // composer-bar slot is `kind: 'single'`, so at most one bar is mounted to
-  // bind these. Text drags carry no 'Files' type and pass through untouched,
-  // keeping the native drop-text-into-textarea path. The overlay layer itself
-  // is pointer-inert, so it never disturbs the enter/leave count.
-  const canAcceptImages = !locked && !machineBusy && addImages !== undefined
-  // The composer slot always composes the input machine (a non-optional prop),
-  // so only the lock/machine-busy states gate text intake.
-  const canAcceptText = !locked && !machineBusy
-  // Panel path drags need the draft machine to carry the path sentence.
-  // `canAcceptText` already implies it: `locked` folds `!live`, which
-  // includes `keyboard === undefined`.
-  const canAcceptPath = canAcceptText
-  const canAcceptDrop = canAcceptImages || canAcceptText
+  // on the document so a drop anywhere over the window adds images, not only
+  // over the composer card. Safe as document-level state: the composer-bar
+  // slot is `kind: 'single'`, so at most one bar is mounted to bind these.
+  // Text drags carry no 'Files' type and pass through untouched, keeping the
+  // native drop-text-into-textarea path. The overlay layer itself is
+  // pointer-inert, so it never disturbs the enter/leave count.
+  const canAcceptDrop = !locked && !machineBusy && addImages !== undefined
   useEffect(() => {
     const hasFiles = (event: globalThis.DragEvent): boolean =>
       event.dataTransfer?.types.includes('Files') ?? false
-    const hasPanelPath = (event: globalThis.DragEvent): boolean =>
-      event.dataTransfer?.types.includes(PANEL_PATH_MIME) ?? false
-    const hasPayload = (event: globalThis.DragEvent): boolean =>
-      hasFiles(event) || hasPanelPath(event)
     const reset = (): void => {
       dragDepthRef.current = 0
       setDragActive(false)
     }
     const onDragEnter = (event: globalThis.DragEvent): void => {
-      if (!hasPayload(event)) return
+      if (!hasFiles(event)) return
       event.preventDefault()
       dragDepthRef.current += 1
       setDragActive(true)
     }
     const onDragOver = (event: globalThis.DragEvent): void => {
-      if (!hasPayload(event) || event.dataTransfer === null) return
+      if (!hasFiles(event) || event.dataTransfer === null) return
       event.preventDefault()
-      event.dataTransfer.dropEffect = (canAcceptDrop || canAcceptPath) ? 'copy' : 'none'
+      event.dataTransfer.dropEffect = canAcceptDrop ? 'copy' : 'none'
     }
     const onDragLeave = (event: globalThis.DragEvent): void => {
-      if (!hasPayload(event)) return
+      if (!hasFiles(event)) return
       dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
       if (dragDepthRef.current === 0) setDragActive(false)
       // Leaving through the viewport edge does not balance the count on every
@@ -667,24 +501,11 @@ export function InputBar({
       if ((event.target === document.documentElement || event.target === document.body) && leavingViewport) reset()
     }
     const onDrop = (event: globalThis.DragEvent): void => {
-      if (!hasPayload(event)) return
+      if (!hasFiles(event)) return
       event.preventDefault()
       reset()
-      // Panel row drags carry a path in a custom type; they never arrive as
-      // `Files`, so their intake must precede the OS-file branch. The narrow
-      // structural face keeps synthetic drag events (no getData) working.
-      const transfer = event.dataTransfer as unknown as {
-        getData?: (type: string) => string
-      } | null
-      const panelPath = transfer?.getData?.(PANEL_PATH_MIME) ?? ''
-      if (panelPath !== '') {
-        if (canAcceptPath) intakePanelPath(panelPath)
-        return
-      }
       if (!canAcceptDrop) return
-      const files = [...(event.dataTransfer?.files ?? [])]
-      if (canAcceptImages) intakeImages(files.filter(file => file.type.startsWith('image/')))
-      if (canAcceptText) intakeTextFiles(files.filter(file => !file.type.startsWith('image/')))
+      intakeImages([...(event.dataTransfer?.files ?? [])])
     }
     document.addEventListener('dragenter', onDragEnter)
     document.addEventListener('dragover', onDragOver)
@@ -698,7 +519,7 @@ export function InputBar({
       document.removeEventListener('drop', onDrop)
       window.removeEventListener('dragend', reset)
     }
-  }, [canAcceptDrop, canAcceptPath, canAcceptImages, canAcceptText, intakeImages, intakeTextFiles, intakePanelPath])
+  }, [canAcceptDrop, intakeImages])
 
   const closePreview = useCallback(() => { setPreview(null) }, [])
 
@@ -746,10 +567,7 @@ export function InputBar({
     }
     if (inputActions === undefined) return // absent machine: the button is disabled
     /* v8 ignore next -- defensive: the primary button is disabled while empty||disabled, so a click cannot reach the false arm. */
-    if (!empty && !disabled && !machineBusy) {
-      foldPendingFiles()
-      inputActions.submit()
-    }
+    if (!empty && !disabled && !machineBusy) inputActions.submit()
   }
 
   // The Access seat: the projection-fed permission chip (renders nothing
@@ -882,23 +700,6 @@ export function InputBar({
               onOpen={(item) => { setPreview(item.attachment) }}
               onRemove={(item) => { removeImage?.(item.attachment.id) }}
             />
-          </div>
-        )}
-        {pendingFiles.length > 0 && (
-          <div className={css.fileChips}>
-            {pendingFiles.map(file => (
-              <span key={file.name} className={css.fileChip}>
-                <span className={css.fileChipName} title={file.name}>{file.name}</span>
-                <button
-                  type="button"
-                  className={css.fileChipRemove}
-                  aria-label={`移除文件 ${file.name}`}
-                  onClick={() => { removePendingFile(file.name) }}
-                >
-                  <IconCloseOutline16 size={12} />
-                </button>
-              </span>
-            ))}
           </div>
         )}
         {/* One scrollport, two text layers. The hidden mirror renders draft+'\n' and stretches the

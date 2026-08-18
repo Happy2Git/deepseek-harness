@@ -596,18 +596,7 @@ async function summarizeCold(
 /** Map a browse-primitive failure onto the wire error vocabulary (unknown throws stay internal). */
 function directoryError(error: unknown): RpcError {
   if (error instanceof DirectoryPickerError) {
-    switch (error.code) {
-      case 'directory-unreadable':
-      case 'directory-exists':
-      case 'directory-create-failed':
-        return { code: error.code, message: error.message, details: { path: error.path } }
-      case 'file-unreadable':
-      case 'file-not-text':
-      case 'file-too-large':
-        // No wire code remains for file reads — the core gateway dropped
-        // host.readText, so these seam codes cannot reach this path.
-        return { code: 'internal', message: error.message, details: {} }
-    }
+    return { code: error.code, message: error.message, details: { path: error.path } }
   }
   return { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} }
 }
@@ -2228,22 +2217,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const { groups, failures } = await buildModelCatalog(ctx)
         const routable = routeServed(current.provider)
         return ok(request, { current: { ...current }, routable, groups, failures })
-      },
-
-      async imageInput(request) {
-        const { sessionId } = request.payload
-        const found = await agentFor(sessionId)
-        if ('error' in found) return err(request, found.error)
-        try {
-          const current = selectionFor(found.agent).current
-          const info = await ctx.llm.resolveModelInfo(current.provider, current.model)
-          return ok(request, info.inputModalities === undefined ? null : info.inputModalities.includes('image'))
-        } catch (error: unknown) {
-          // Fail closed: an unresolvable route advertises no image intake, so
-          // the client degrades to a path reference instead of a bad attach.
-          ctx.logger.debug(`api-proxy: imageInput probe failed for session "${sessionId}": ${String(error)}`)
-          return ok(request, null)
-        }
       },
 
       async selectModel(request) {

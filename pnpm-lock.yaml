@@ -1325,9 +1325,6 @@ importers:
       '@deepseek-ai/dsh-client-ui-commands':
         specifier: workspace:^
         version: link:../../client/ui-commands
-      '@deepseek-ai/dsh-client-ui-context-files':
-        specifier: workspace:^
-        version: link:../../client/ui-context-files
       '@deepseek-ai/dsh-client-ui-conversation':
         specifier: workspace:^
         version: link:../../client/ui-conversation
@@ -1433,15 +1430,9 @@ importers:
       '@deepseek-ai/dsh-host-directory-picker-native':
         specifier: workspace:^
         version: link:../../host/directory-picker-native
-      '@deepseek-ai/dsh-host-directory-routes':
-        specifier: workspace:^
-        version: link:../../host/directory-routes
       '@deepseek-ai/dsh-host-frontend-static':
         specifier: workspace:^
         version: link:../../host/frontend-static
-      '@deepseek-ai/dsh-host-git-local':
-        specifier: workspace:^
-        version: link:../../host/git-local
       '@deepseek-ai/dsh-host-plugin-inventory':
         specifier: workspace:^
         version: link:../../host/plugin-inventory
@@ -1822,49 +1813,6 @@ importers:
       react:
         specifier: ^18.2.0
         version: 18.3.1
-
-  packages/client/ui-context-files:
-    dependencies:
-      '@deepseek-ai/dsh-client-runtime':
-        specifier: workspace:^
-        version: link:../runtime
-      '@deepseek-ai/dsh-client-ui-layout':
-        specifier: workspace:^
-        version: link:../ui-layout
-      '@deepseek-ai/dsh-client-ui-primitives':
-        specifier: workspace:^
-        version: link:../ui-primitives
-      '@deepseek-ai/dsh-client-ui-slots':
-        specifier: workspace:^
-        version: link:../ui-slots
-      clsx:
-        specifier: ^2.0.0
-        version: 2.1.1
-      react:
-        specifier: ^18.2.0
-        version: 18.3.1
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-api-remotes':
-        specifier: workspace:^
-        version: link:../../api/remotes
-      '@deepseek-ai/dsh-host-directory-picker':
-        specifier: workspace:^
-        version: link:../../host/directory-picker
-      '@deepseek-ai/dsh-host-git':
-        specifier: workspace:^
-        version: link:../../host/git
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../runtime-diagnostics/invariants
-      '@deepseek-ai/dsh-llm':
-        specifier: workspace:^
-        version: link:../../llm/llm
-      '@types/react':
-        specifier: ~18.3.1
-        version: 18.3.31
 
   packages/client/ui-conversation:
     dependencies:
@@ -4814,9 +4762,6 @@ importers:
       '@deepseek-ai/dsh-host-directory-picker':
         specifier: workspace:^
         version: link:../directory-picker
-      '@deepseek-ai/dsh-host-git':
-        specifier: workspace:^
-        version: link:../git
       '@deepseek-ai/dsh-jobs':
         specifier: workspace:^
         version: link:../../jobs/jobs
@@ -4980,28 +4925,6 @@ importers:
         specifier: ^4.19.2
         version: 4.22.4
 
-  packages/host/directory-routes:
-    dependencies:
-      '@deepseek-ai/dsh-native-command':
-        specifier: workspace:^
-        version: link:../../util/native-command
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-attachment':
-        specifier: workspace:^
-        version: link:../../attachment/attachment
-      '@deepseek-ai/dsh-host-directory-picker':
-        specifier: workspace:^
-        version: link:../directory-picker
-      '@deepseek-ai/dsh-host-webserver':
-        specifier: workspace:^
-        version: link:../webserver
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../runtime-diagnostics/invariants
-
   packages/host/frontend-static:
     dependencies:
       '@deepseek-ai/schemastery':
@@ -5020,37 +4943,6 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
-
-  packages/host/git:
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../runtime-diagnostics/invariants
-
-  packages/host/git-local:
-    dependencies:
-      '@deepseek-ai/dsh-host-git':
-        specifier: workspace:^
-        version: link:../git
-      '@deepseek-ai/schemastery':
-        specifier: link:../../../vendor/schemastery
-        version: link:../../../vendor/schemastery
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-host-webserver':
-        specifier: workspace:^
-        version: link:../webserver
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../runtime-diagnostics/invariants
-      '@deepseek-ai/dsh-subprocess':
-        specifier: workspace:^
-        version: link:../../subprocess/subprocess
 
   packages/host/plugin-inventory:
     dependencies:
@@ -6013,9 +5905,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-commands':
         specifier: workspace:^
         version: link:../../client/ui-commands
-      '@deepseek-ai/dsh-client-ui-context-files':
+      '@deepseek-ai/dsh-client-ui-conversation':
         specifier: workspace:^
-        version: link:../../client/ui-context-files
+        version: link:../../client/ui-conversation
       '@deepseek-ai/dsh-client-ui-primitives':
         specifier: workspace:^
         version: link:../../client/ui-primitives

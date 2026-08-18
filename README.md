@@ -1,42 +1,24 @@
-# DeepSeek Harness — context-panel fork
+# DeepSeek Harness — fork
 
 English | [中文](README.zh.md)
 
-A fork of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) that adds a right-side context-and-files panel, panel-file drag into the conversation, and conversation reserve. Everything else tracks upstream.
+A fork of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) that tracks upstream master. The right-side context-and-files panel and its git/directory backends, formerly built into this fork, are now published separately as the [dsh-compass](https://github.com/Happy2Git/dsh-compass) plugin.
 
-## What this fork adds
+## What this fork keeps local
 
-### Right-side context and files panel
+- A terminal TUI (packaged as `dsh-terminal`) — interactive front door (`dsh --profile cli`), `/model` selector and `/clear` transcript reset, reasoning-block rendering with a `/details` toggle, structured tool-result cards, and headless drivers (`--jsonl`, `--mode`, `--session-id`, `--model`). It stays in-repo until its feature set grows.
+- Web extras: status-dot strips under the background-task and subagent counts.
+- CI and issue-management workflows scoped so they only run on the canonical upstream repo.
 
-A persistent, resizable panel pinned to the right edge of the Web UI, with three tabs:
+## Install the panel
 
-- **Files (文件夹)** — browse the session's workspace directory with directories-first order, a basename filter, git working-tree status badges, and per-row open/copy actions.
-- **Context (上下文)** — the injected-context documents read from the session log, split into the live window (当前有效) and the compaction history stream (历史流水), with search over both. The view re-projects itself as the session streams and pulls the complete history out-of-band on activation (up to 1,000 messages, folded privately, the conversation window untouched), so both sections hold the complete log without manual paging.
-- **Git** — a framed working-tree block (branch position, uncommitted files) above a read-only commit graph in IDE-history style, with a refresh control; expand a commit to see its changed files, click a workspace row or a commit file to open its diff in the centered pop-out. Diff previews are colored by line role (additions, deletions, hunk headers).
+The context-and-files panel is now an ecosystem plugin. Install it with:
 
-![Files tab](screenshots/01-files-tab.png?v=3)
-![Git tab](screenshots/02-git-tab.png?v=3)
-![Context tab](screenshots/03-context-tab.png?v=3)
-![Files tab, directories first](screenshots/04-files-tab-dirs-first.png?v=3)
-![Working-tree diff preview](screenshots/06-workspace-diff.png?v=3)
+```sh
+pnpm dsh plugin --profile web add /path/to/dsh-compass
+```
 
-### Drag panel files onto the conversation
-
-File rows in the panel drag their absolute path into the conversation. For image files on an image-capable model, the image content is read and attached to the message directly; any other model (or a read failure) receives the path sentence, which the agent can act on with its tools. Nothing is copied into the workspace.
-
-![Panel file drag](screenshots/05-drag-image.png?v=3)
-
-### Text-file drop intake
-
-Dropping text files anywhere on the page attaches them as chips; their content is folded into the message at submit, never pasted into the text box.
-
-### Conversation reserve
-
-The conversation reserves right-side space for the panel, so the panel never overlaps the chat.
-
-### Security and performance
-
-The panel's host routes are loopback-only, body-capped, fully-qualified-path-only, and fail closed on oversized or malformed reads; git access is read-only and image drags never copy files into the workspace. The context tab's document stream is signature-gated (re-renders only on real document changes), and complete history arrives through `/dir/injected-docs`, which filters the durable log server-side — on a session with 181k events this replaced roughly 120 MB of history-page JSON per activation with a single KB-scale response. All reads and listings are bounded and abort with the caller.
+See [dsh-compass](https://github.com/Happy2Git/dsh-compass) for requirements, install options, and screenshots.
 
 ## Run
 
@@ -57,10 +39,6 @@ pnpm dsh web
 ```
 
 The Web UI is served at `http://127.0.0.1:3080` by default.
-
-## The extractable plugins
-
-The panel and its git/directory backends are published separately as ecosystem plugins — see [dsh-compass](https://github.com/Happy2Git/dsh-compass). A terminal TUI (`dsh-terminal`) is packaged the same way and stays local until its feature set grows.
 
 ## License
 

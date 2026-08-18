@@ -93,9 +93,6 @@
       "path": "../directory-picker"
     },
     {
-      "path": "../git"
-    },
-    {
       "path": "../../extensions/cordis-host-runner"
     },
     {

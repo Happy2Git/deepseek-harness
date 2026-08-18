@@ -49,7 +49,6 @@ function scriptedApi(overrides: {
         groups: [],
         failures: [],
       }),
-      imageInput: r => ok(r, null),
       selectModel: r => ok(r, {
         selected: { provider: r.payload.provider, model: r.payload.model },
       }),

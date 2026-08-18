@@ -24,7 +24,7 @@ export interface DirectoryPickerNativeCapability {
   pick(signal: AbortSignal): Promise<string | null>
 }
 
-/** One listing row: a listing child or a breadcrumb ancestor. */
+/** One directory row: a listing child or a breadcrumb ancestor. */
 export interface DirectoryEntry {
   /** Base name shown in a browser row (a root crumb carries its full path). */
   name: string
@@ -32,8 +32,6 @@ export interface DirectoryEntry {
   path: string
   /** Hidden by the host platform's convention (dot-prefixed on POSIX); the client owns whether to show it. */
   hidden: boolean
-  /** Whether the row is enterable (directory, including a symlink to one) or a file. */
-  kind: 'directory' | 'file'
 }
 
 /** One directory level plus its ancestry, as a browse backend reports it. */
@@ -47,12 +45,12 @@ export interface DirectoryListing {
    * inclusive; every crumb is a jump target (crumb `hidden` is always false).
    */
   crumbs: DirectoryEntry[]
-  /** Direct children: directories first (symlinks to directories included), then files — each group name-sorted. */
+  /** Direct child directories, name-sorted; symlinks to directories included. */
   entries: DirectoryEntry[]
   /**
    * True when the backend cut `entries` at its complete-result bound: the
-   * level has more children than reported, and the missing rows are the
-   * directories-first name-sorted tail (hidden rows count toward the bound).
+   * level has more child directories than reported, and the missing rows are
+   * the name-sorted tail (hidden rows count toward the bound).
    */
   truncated: boolean
 }
@@ -78,29 +76,6 @@ export interface DirectoryPickerBrowseCapability {
    */
   list(path?: string, signal?: AbortSignal): Promise<DirectoryListing>
   /**
-   * Read one text file's content, bounded by the backend's configured maximum.
-   * @param path - absolute file path.
-   * @param signal - caller lifetime; abort stops the read and rejects with the
-   * abort reason.
-   * @returns the bounded decoded text.
-   * @throws {DirectoryPickerError} `file-unreadable` when the target is not fully
-   * qualified, is not a readable file, or any other read failure; `file-not-text`
-   * when the content is binary (no text preview exists).
-   */
-  readText(path: string, signal?: AbortSignal): Promise<DirectoryRead>
-  /**
-   * Read one file's raw bytes for image intake, bounded by the backend's
-   * configured maximum.
-   * @param path - absolute file path.
-   * @param signal - caller lifetime; abort stops the read and rejects with the
-   * abort reason.
-   * @returns the bounded raw bytes.
-   * @throws {DirectoryPickerError} `file-unreadable` when the target is not fully
-   * qualified, is not a readable file, or any other read failure; `file-too-large`
-   * when the file exceeds the backend's byte bound.
-   */
-  readImage(path: string, signal?: AbortSignal): Promise<DirectoryImageRead>
-  /**
    * Create one child directory under an existing parent.
    * @param path - absolute existing parent directory.
    * @param name - single non-blank path segment (no separators, not `.`/`..`).
@@ -109,24 +84,6 @@ export interface DirectoryPickerBrowseCapability {
    * `directory-create-failed` for a parent that is not fully qualified or any other failure.
    */
   createDirectory(path: string, name: string): Promise<string>
-}
-
-/** Bounded text read of one file, as a browse backend reports it. */
-export interface DirectoryRead {
-  /** Absolute path of the read file. */
-  path: string
-  /** Decoded text content, bounded at the backend's configured maximum. */
-  text: string
-  /** True when the backend cut `text` at its bound (the tail is absent). */
-  truncated: boolean
-}
-
-/** Bounded raw read of one file for image intake, as a browse backend reports it. */
-export interface DirectoryImageRead {
-  /** Absolute path of the read file. */
-  path: string
-  /** Exact raw bytes (never cut; the read fails closed past the bound). */
-  data: Uint8Array
 }
 
 /**
@@ -143,7 +100,7 @@ export interface DirectoryPickerCapabilities {
 export type DirectoryPickerCapability = DirectoryPickerCapabilities[keyof DirectoryPickerCapabilities]
 
 /** Closed failure vocabulary of the browse primitives (mirrored onto the wire by consumers). */
-export type DirectoryPickerErrorCode = 'directory-unreadable' | 'directory-exists' | 'directory-create-failed' | 'file-unreadable' | 'file-not-text' | 'file-too-large'
+export type DirectoryPickerErrorCode = 'directory-unreadable' | 'directory-exists' | 'directory-create-failed'
 
 /** Typed failure thrown by browse primitives so consumers can map business codes without string matching. */
 export class DirectoryPickerError extends Error {

@@ -5,7 +5,7 @@
 // decoration backdrop, error/notice strips, and the focus-keeping mousedown.
 
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import {
   createSnapshotStore, EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS,
@@ -86,10 +86,6 @@ interface BenchOptions {
   rightItems?: React.ReactNode
   attachments?: readonly ComposerAttachment[]
   addImages?: (files: readonly File[]) => string | null
-  /** The panel-path image read stub (default: a failed read). */
-  readImageByPath?: InputBarProps['readImageByPath']
-  /** The session image-capability probe stub (default: not capable). */
-  sessionImageInput?: InputBarProps['sessionImageInput']
   commandMenuOpen?: boolean
   busyEnter?: 'queue' | 'steer'
   toggleCommandMenu?: (selection: { start: number; end: number }) => void
@@ -165,8 +161,6 @@ function bench(over?: BenchOptions) {
     inputActions: shell.actions,
     keyboard: shell,
     addImages: over?.addImages ?? (() => null),
-    readImageByPath: over?.readImageByPath ?? (() => Promise.resolve({ ok: false, status: 500 })),
-    sessionImageInput: over?.sessionImageInput ?? (() => Promise.resolve(false)),
     removeImage,
     draftImages: ids => ids.flatMap((id) => {
       const attachment = over?.attachments?.find(candidate => candidate.id === id)
@@ -303,85 +297,26 @@ describe('image draft rail', () => {
     expect(within.view.queryByRole('alert')).toBeNull()
   })
 
-  it('parks a dropped text file as a chip and folds it into the send', async () => {
-    const { view, textarea, sink } = bench()
-    const file = new File(['hello\nworld'], 'notes.txt', { type: 'text/plain' })
-    fireEvent.drop(document.body, { dataTransfer: { types: ['Files'], files: [file], dropEffect: 'none' } })
-    // A chip appears; the box itself stays empty (the content parks, not pastes).
-    await waitFor(() => {
-      expect(view.getByText('notes.txt')).toBeTruthy()
+  it('announces the format problem before any limit when the batch holds a non-image', () => {
+    const addImages = vi.fn(() => '仅支持 PNG、JPG、WebP、GIF 格式的图片')
+    const { view } = bench({
+      addImages,
+      imageLimits: {
+        maxImageBytes: 8,
+        maxImagesPerMessage: 1,
+        maxMessageImageBytes: 8,
+        maxImagePixels: 40_000_000,
+        mediaTypes: ['image/png'] as const,
+      },
     })
-    expect(textarea.value).toBe('')
-    fireEvent.keyDown(textarea, { key: 'Enter' })
-    await waitFor(() => {
-      expect(sink).toHaveBeenCalledWith('```notes.txt\nhello\nworld\n```', [], 'queue')
-    })
-  })
-
-  it('announces a refusal when a dropped file is binary', async () => {
-    const { view } = bench()
-    const file = new File([new ArrayBuffer(64)], 'a.pdf', { type: 'application/pdf' })
-    fireEvent.drop(document.body, { dataTransfer: { types: ['Files'], files: [file], dropEffect: 'none' } })
-    await waitFor(() => {
-      expect(view.getByRole('alert').textContent).toContain('无法读取文件内容，未插入')
-    })
-  })
-
-  it('refuses a drop that would exceed the total text-file count', async () => {
-    const { view, textarea } = bench()
-    const files = Array.from({ length: 21 }, (_, i) => new File(['x'], `f${i}.txt`, { type: 'text/plain' }))
+    // Oversized AND over-count AND wrong type: the format rejection wins.
+    const files = [
+      new File([new ArrayBuffer(64)], 'a.pdf', { type: 'application/pdf' }),
+      new File([new ArrayBuffer(64)], 'b.pdf', { type: 'application/pdf' }),
+    ]
     fireEvent.drop(document.body, { dataTransfer: { types: ['Files'], files, dropEffect: 'none' } })
-    await waitFor(() => {
-      expect(view.getByRole('alert').textContent).toContain('一次最多添加 20 个文件，未插入')
-    })
-    expect(textarea.value).toBe('')
-    expect(view.queryByText('f0.txt')).toBeNull()
-  })
-
-  it('keeps existing chips and refuses a drop that would exceed the total text-file bytes', async () => {
-    const { view } = bench()
-    const big = (i: number) => new File(['a'.repeat(100_000)], `big-${i}.txt`, { type: 'text/plain' })
-    // 10 × 100,000 = 1,000,000 bytes; below the 1 MiB cap.
-    fireEvent.drop(document.body, {
-      dataTransfer: { types: ['Files'], files: Array.from({ length: 10 }, (_, i) => big(i)), dropEffect: 'none' },
-    })
-    await waitFor(() => {
-      expect(view.getByText('big-0.txt')).toBeTruthy()
-    })
-    // Adding another 50,000 bytes would total 1,050,000 bytes; the new batch
-    // is refused and the existing chips stay.
-    fireEvent.drop(document.body, {
-      dataTransfer: { types: ['Files'], files: [new File(['a'.repeat(50_000)], 'extra.txt', { type: 'text/plain' })], dropEffect: 'none' },
-    })
-    await waitFor(() => {
-      expect(view.getByRole('alert').textContent).toContain('文件总大小超过 1MB，未插入')
-    })
-    expect(view.getByText('big-0.txt')).toBeTruthy()
-    expect(view.queryByText('extra.txt')).toBeNull()
-  })
-
-  it('counts an in-flight batch against a rapid second drop before its read settles', async () => {
-    const { view } = bench()
-    const big = (i: number) => new File(['a'.repeat(100_000)], `big-${i}.txt`, { type: 'text/plain' })
-    // First drop: 10 × 100,000 bytes — still being read when the second lands
-    // in the same synchronous tick, so the second pre-check can only see the
-    // reservation the intake made before starting the reads.
-    fireEvent.drop(document.body, {
-      dataTransfer: { types: ['Files'], files: Array.from({ length: 10 }, (_, i) => big(i)), dropEffect: 'none' },
-    })
-    // Second drop: 50,000 more bytes would total 1,050,000 — over the 1 MiB
-    // cap — so the batch is refused even though the first has not settled.
-    fireEvent.drop(document.body, {
-      dataTransfer: { types: ['Files'], files: [new File(['a'.repeat(50_000)], 'extra.txt', { type: 'text/plain' })], dropEffect: 'none' },
-    })
-    await waitFor(() => {
-      expect(view.getByRole('alert').textContent).toContain('文件总大小超过 1MB，未插入')
-    })
-    // The first batch's chips still land; the refused batch never appears.
-    await waitFor(() => {
-      expect(view.getByText('big-0.txt')).toBeTruthy()
-    })
-    expect(view.queryByText('extra.txt')).toBeNull()
+    expect(addImages).toHaveBeenCalledWith(files)
+    expect(view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
   })
 
   it('shows the projected limits in the drop overlay desc line', () => {
@@ -1497,98 +1432,5 @@ describe('command launcher chrome and control seats', () => {
     cleanup()
     const live = bench({ running: true, permissions })
     expect((live.view.getByLabelText(/^访问模式/) as HTMLButtonElement).disabled).toBe(false)
-  })
-})
-
-describe('panel path drag intake', () => {
-  const PANEL_PATH_MIME = 'application/x-dsh-path'
-  const panelDrop = (path: string) => {
-    fireEvent.drop(document.body, {
-      dataTransfer: {
-        types: [PANEL_PATH_MIME],
-        files: [],
-        dropEffect: 'none',
-        getData: (type: string) => type === PANEL_PATH_MIME ? path : '',
-      },
-    })
-  }
-  const base64 = (bytes: number[]): string => btoa(String.fromCharCode(...bytes))
-
-  it('a not-image-capable session folds the path sentence into the draft without a read', async () => {
-    const readImageByPath = vi.fn(() => Promise.resolve({ ok: true as const, data: base64([1]), mediaType: 'image/png' }))
-    const addImages = vi.fn<(files: readonly File[]) => string | null>(() => null)
-    const { shell } = bench({ sessionImageInput: () => Promise.resolve(false), readImageByPath, addImages })
-    panelDrop('/proj/shot.png')
-    await waitFor(() => {
-      expect(shell.snapshot.draft).toBe('已拖入图片 /proj/shot.png。')
-    })
-    expect(readImageByPath).not.toHaveBeenCalled()
-    expect(addImages).not.toHaveBeenCalled()
-  })
-
-  it('an image-capable session attaches the route bytes and adds the attached sentence', async () => {
-    let attached: File | undefined
-    const addImages = vi.fn<(files: readonly File[]) => string | null>((files) => {
-      attached = files[0]
-      return null
-    })
-    const { shell } = bench({
-      sessionImageInput: () => Promise.resolve(true),
-      readImageByPath: () => Promise.resolve({ ok: true, data: base64([1, 2, 3]), mediaType: 'image/png' }),
-      addImages,
-    })
-    panelDrop('/proj/deep/shot.png')
-    await waitFor(() => {
-      expect(shell.snapshot.draft).toBe('已拖入图片 /proj/deep/shot.png，图片内容已附在本条消息中。')
-    })
-    expect(addImages).toHaveBeenCalledTimes(1)
-    expect(attached).toBeDefined()
-    const file = attached as File
-    expect(file.name).toBe('shot.png')
-    expect(file.type).toBe('image/png')
-    await expect(file.arrayBuffer()).resolves.toEqual(Uint8Array.of(1, 2, 3).buffer)
-  })
-
-  it('an oversized read announces the per-file limit and adds nothing', async () => {
-    const limits = {
-      maxImageBytes: 1024 * 1024,
-      maxImagesPerMessage: 2,
-      maxMessageImageBytes: 2 * 1024 * 1024,
-      maxImagePixels: 40_000_000,
-      mediaTypes: ['image/png'] as const,
-    }
-    const { view, shell } = bench({
-      imageLimits: limits,
-      sessionImageInput: () => Promise.resolve(true),
-      readImageByPath: () => Promise.resolve({ ok: false, status: 413 }),
-    })
-    panelDrop('/proj/big.png')
-    await waitFor(() => {
-      expect(view.getByRole('alert').textContent).toContain('单张图片不能超过 1MB')
-    })
-    expect(shell.snapshot.draft).toBe('')
-  })
-
-  it('an unreadable file announces the read failure and adds nothing', async () => {
-    const { view, shell } = bench({
-      sessionImageInput: () => Promise.resolve(true),
-      readImageByPath: () => Promise.resolve({ ok: false, status: 415 }),
-    })
-    panelDrop('/proj/moved.png')
-    await waitFor(() => {
-      expect(view.getByRole('alert').textContent).toContain('图片读取失败')
-    })
-    expect(shell.snapshot.draft).toBe('')
-  })
-
-  it('a transport failure degrades to the path sentence instead of failing the drop', async () => {
-    const { shell } = bench({
-      sessionImageInput: () => Promise.reject(new Error('rpc offline')),
-      readImageByPath: () => Promise.resolve({ ok: false, status: 500 }),
-    })
-    panelDrop('/proj/shot.png')
-    await waitFor(() => {
-      expect(shell.snapshot.draft).toBe('已拖入图片 /proj/shot.png。')
-    })
   })
 })

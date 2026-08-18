@@ -167,8 +167,8 @@ const BROWSE_STUB: DirectoryPickerCapability = {
     return {
       path: target,
       home: '/home/user',
-      crumbs: [{ name: '/', path: '/', hidden: false, kind: 'directory' }],
-      entries: [{ name: 'projects', path: `${target}/projects`, hidden: false, kind: 'directory' }],
+      crumbs: [{ name: '/', path: '/', hidden: false }],
+      entries: [{ name: 'projects', path: `${target}/projects`, hidden: false }],
       truncated: false,
     }
   },
@@ -177,8 +177,6 @@ const BROWSE_STUB: DirectoryPickerCapability = {
     if (name === 'unwritable') throw new Error('disk detached')
     return `${path}/${name}`
   },
-  readText: async path => ({ path, text: 'wire text', truncated: false }),
-  readImage: async path => ({ path, data: new Uint8Array() }),
 }
 
 describe('host.listDirectory / host.createDirectory', () => {
@@ -212,8 +210,6 @@ describe('host.listDirectory / host.createDirectory', () => {
         signal?.addEventListener('abort', () => { reject(new Error('scan aborted')) }, { once: true })
       }),
       createDirectory: async () => '/never',
-      readText: async path => ({ path, text: '', truncated: false }),
-      readImage: async path => ({ path, data: new Uint8Array() }),
     })
     const abort = new AbortController()
     const pending = api.host.listDirectory(request({}), abort.signal)

@@ -23,7 +23,6 @@
   // cannot see both sides of the cordis Context merges).
   "exclude": [
     "tests/scaffold.ts",
-    "tests/capture-screenshots.e2e.ts",
     "tests/scaffold-hermetic.e2e.ts",
     "tests/minimal-preset.snapshot.ts",
     "tests/message-feedback-protocol.snapshot.ts",
@@ -55,7 +54,6 @@
     "tests/conversation-column-overflow.e2e.ts",
     "tests/code-mode-round.e2e.ts",
     "tests/composer-draft-scroll.e2e.ts",
-    "tests/context-files-panel.e2e.ts",
     "tests/cordis-tool-round.e2e.ts",
     "tests/web-search-round.e2e.ts",
     "tests/message-actions.e2e.ts",

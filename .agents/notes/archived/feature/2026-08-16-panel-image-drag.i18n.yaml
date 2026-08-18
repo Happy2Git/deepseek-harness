@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-16-panel-image-drag.md
+2026-08-16-panel-image-drag.md: 139c7a2818e94a88c5c2bc9ea67b42760b3876f4
+2026-08-16-panel-image-drag.zh.md: ae0a92989a1ff44163954ceecb3dca02fdf58618
