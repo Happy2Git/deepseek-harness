@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
@@ -10,6 +12,7 @@ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type {
   SubprocessHandle,
   SubprocessOutcome,
+  SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import * as codex from '../src/index.ts'
@@ -271,6 +274,23 @@ describe('task admission and package contracts', () => {
       '--stdio',
     ])
     expect(codexAppServerArgv('linux')).toEqual(['codex', 'app-server', '--stdio'])
+  })
+
+  it('honours a custom binary name and explicit path without changing the boundary', () => {
+    expect(codexAppServerArgv('linux', { name: 'dsh_inner_codex' })).toEqual([
+      'dsh_inner_codex',
+      'app-server',
+      '--stdio',
+    ])
+    expect(codexAppServerArgv('win32', { path: 'C:\\tools\\dsh_inner_codex.exe' })).toEqual([
+      'cmd.exe',
+      '/d',
+      '/s',
+      '/c',
+      'C:\\tools\\dsh_inner_codex.exe',
+      'app-server',
+      '--stdio',
+    ])
   })
 
   it('accepts one or more text blocks and rejects empty or non-text tasks', () => {
@@ -886,6 +906,61 @@ describe('run lifecycle and quiescence', () => {
     await nextTask()
     expect(child.terminate).toHaveBeenCalledTimes(1)
     expect(child.waitForExit).toHaveBeenCalledTimes(1)
+  })
+
+  it('spins up a loopback bridge and one-shot home, scrubs env, and releases both on dispose', async () => {
+    const child = fakeChild()
+    const spawn = vi.fn((_spec: SubprocessSpawnSpec) => child.handle)
+    const starting = startCodexRun(
+      request([{ type: 'text', text: 'task' }]),
+      runSpec(child, {
+        env: { OPENAI_API_KEY: 'fake', DSH_CODEX_TOKEN: 'token', HTTP_PROXY: 'http://127.0.0.1:7892' },
+        loopback: {
+          upstreamBaseUrl: 'http://127.0.0.1:9999',
+          model: 'intranet-model',
+        },
+        spawn,
+      }),
+    )
+    const initialize = await child.peer.nextMethod('initialize')
+    child.peer.respond(initialize, { userAgent: 'codex-cli 0.147.0' })
+    await child.peer.nextMethod('initialized')
+    const threadStart = await child.peer.nextMethod('thread/start')
+    child.peer.respond(threadStart, { thread: { id: 'thread-1', ephemeral: true } })
+    const run = await starting
+
+    const spawnCall = spawn.mock.calls[0]![0]
+    expect(spawnCall.argv).toEqual(['codex', 'app-server', '--stdio'])
+    // The scrub removes far-end keys and proxies while keeping the DSH token.
+    const childEnv = spawnCall.env
+    expect(childEnv).toBeDefined()
+    if (childEnv === undefined) throw new Error('loopback child env must be set')
+    expect(childEnv.OPENAI_API_KEY).toBeUndefined()
+    expect(childEnv.HTTP_PROXY).toBe('')
+    expect(childEnv.NO_PROXY).toBe('127.0.0.1,localhost')
+    expect(childEnv.DSH_CODEX_TOKEN).toBe('token')
+    // A real one-shot home was written and points config.toml at the bridge.
+    const homeDir = childEnv.CODEX_HOME
+    expect(typeof homeDir).toBe('string')
+    if (homeDir === undefined) throw new Error('loopback CODEX_HOME must be set')
+    const configPath = join(homeDir, 'config.toml')
+    expect(existsSync(configPath)).toBe(true)
+    const toml = readFileSync(configPath, 'utf8')
+    expect(toml).toContain('model = "intranet-model"')
+    expect(toml).toMatch(/base_url = "http:\/\/127\.0\.0\.1:\d+\/v1"/)
+
+    const turnStart = await child.peer.nextMethod('turn/start')
+    child.peer.send(
+      { id: turnStart.id, result: { turn: { id: 'turn-1' } } },
+      agentMessage('answer', 'final_answer'),
+      turnCompleted('completed'),
+    )
+    await run.result
+
+    await run.dispose()
+    expect(existsSync(homeDir)).toBe(false)
+    await nextTask()
+    expect(child.terminate).toHaveBeenCalledTimes(1)
   })
 
   it('settles local cancellation immediately and sends best-effort interrupt', async () => {

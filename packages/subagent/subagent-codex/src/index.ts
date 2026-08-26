@@ -35,14 +35,58 @@ export interface Config {
   env?: Record<string, string>
   /** Grace in milliseconds for app-server process-tree termination. */
   disposeGraceMs?: number
+  /**
+   * Bare Codex app-server command name resolved from PATH. Defaults to
+   * `codex`; an intranet build of the trimmed binary is `dsh_inner_codex`.
+   * `binaryPath` wins when both are set.
+   */
+  binaryName?: string
+  /**
+   * Explicit Codex app-server executable path, resolved before `binaryName`.
+   * Lets an intranet deployment point at `dsh_inner_codex` without polluting
+   * PATH. Prefer this over `binaryName` when the executable is in a known
+   * build directory.
+   */
+  binaryPath?: string
+  /**
+   * Loopback bridge + one-shot CODEX_HOME. When set, the plugin starts a
+   * loopback-only reverse proxy, points the child's config.toml at it, and
+   * converges every model request at `upstreamBaseUrl`. The API key still
+   * travels via `env` under `DSH_CODEX_TOKEN`; a code-level caller may
+   * additionally supply a credential resolver through the run spec.
+   */
+  loopback?: ConfigLoopback
+}
+
+/** Deployment-facing loopback bridge values (all data, serializable from yml). */
+export interface ConfigLoopback {
+  /** The single intranet model endpoint the bridge may reach. */
+  readonly upstreamBaseUrl: string
+  /** Intranet model id the app-server must use. */
+  readonly model: string
+  /** Responses path; defaults to `/v1/responses`. */
+  readonly path?: string
+  /** Wire API advertised; defaults to `responses`. */
+  readonly wireApi?: string
+  /** Sandbox mode; defaults to `read-only`. */
+  readonly sandboxMode?: string
 }
 
 export const Config: z<Config> = z.object({
   env: z.dict(z.string()).default({}),
   disposeGraceMs: z.number().default(DEFAULT_DISPOSE_GRACE_MS),
+  binaryName: z.string().required(false),
+  binaryPath: z.string().required(false),
+  loopback: z.object({
+    upstreamBaseUrl: z.string(),
+    model: z.string(),
+    path: z.string().required(false),
+    wireApi: z.string().required(false),
+    sandboxMode: z.string().required(false),
+  }).required(false),
 })
 
-type ResolvedConfig = Required<Config>
+type ResolvedConfig = Required<Omit<Config, 'binaryName' | 'binaryPath' | 'loopback'>> & Config
 
 class CodexProvider implements SubagentProvider {
   readonly name = 'codex'
@@ -61,6 +105,23 @@ class CodexProvider implements SubagentProvider {
         'subagent-codex: no working directory for the child — delegate from a parent session that has one',
       )
     }
+    const binary = this.config.binaryPath !== undefined
+      || this.config.binaryName !== undefined
+      ? {
+        ...(this.config.binaryName !== undefined
+          ? { name: this.config.binaryName }
+          : {}),
+        ...(this.config.binaryPath !== undefined
+          ? { path: this.config.binaryPath }
+          : {}),
+      }
+      : undefined
+    // schemastery turns an absent optional object into an empty object, so the
+    // loopback bridge is only enabled when both required data fields are present.
+    const loopbackConfig = this.config.loopback
+    const loopback = 'upstreamBaseUrl' in (loopbackConfig ?? {})
+      ? loopbackConfig
+      : undefined
     const spec: CodexRunSpec = {
       cwd: resolveChildCwd(
         'subagent-codex',
@@ -68,6 +129,8 @@ class CodexProvider implements SubagentProvider {
         parentCwd,
       ),
       env: this.config.env,
+      ...(binary !== undefined ? { binary } : {}),
+      ...(loopback !== undefined ? { loopback } : {}),
       disposeGraceMs: this.config.disposeGraceMs,
       spawn: spawnSpec => this.ctx.subprocess.spawn(spawnSpec),
       onError: (error, stopReason) => {
@@ -96,6 +159,12 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error(
       `subagent-codex: disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`,
     )
+  }
+  for (const key of ['binaryName', 'binaryPath'] as const) {
+    const value = resolved[key]
+    if (value !== undefined && value.trim().length === 0) {
+      throw new Error(`subagent-codex: ${key} must not be empty`)
+    }
   }
   ctx.subagents.registerProvider(new CodexProvider(ctx, resolved))
 }

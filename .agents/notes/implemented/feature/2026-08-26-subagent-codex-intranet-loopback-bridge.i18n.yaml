@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-26-subagent-codex-intranet-loopback-bridge.md
+2026-08-26-subagent-codex-intranet-loopback-bridge.md: ab02e28fefbfce684531dcd496f666d805ffd00e
+2026-08-26-subagent-codex-intranet-loopback-bridge.zh.md: c1e6c8c9ca8b72b73930805564b50c0f5ed23f06

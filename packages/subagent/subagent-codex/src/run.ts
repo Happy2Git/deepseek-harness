@@ -19,26 +19,79 @@ import {
   type SubagentStopReason,
 } from '@deepseek-ai/dsh-subagent'
 import type { SubprocessHandle, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import {
+  startLoopbackBridge,
+  type BridgeCredentialResolver,
+  type LoopbackBridge,
+} from './bridge.ts'
+import {
+  createCodexHome,
+  type CodexHome,
+} from './codex-home.ts'
+import { scrubChildEnv } from './env-scrub.ts'
 import { CodexAppServerWire } from './wire.ts'
 
 /** Default POSIX grace between subprocess termination tiers. */
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
+
+/** How to locate the Codex app-server executable. */
+export interface CodexBinary {
+  /**
+   * Bare command name resolved from PATH. Defaults to `codex`; an intranet
+   * deployment points it at `dsh_inner_codex`.
+   */
+  readonly name?: string
+  /**
+   * Explicit executable path, resolved before `name`. The path is
+   * deployment-trusted configuration, never task text, so the shell boundary
+   * stays constant per run.
+   */
+  readonly path?: string
+}
 
 /**
  * Resolve the fixed app-server command for a platform.
  *
  * Windows npm and pnpm installs expose `codex.cmd`, which requires `cmd.exe`;
  * the argv is constant so no task or configuration text enters the
- * shell boundary.
+ * shell boundary. A `binaryPath` carries the same deployment-trust property.
  * @param platform - host platform used to select the executable boundary.
+ * @param binary - command name or explicit path, both resolved into one argv.
  * @returns argv for the fixed Codex app-server command.
  */
 export function codexAppServerArgv(
   platform: NodeJS.Platform = process.platform,
+  binary: CodexBinary = {},
 ): string[] {
+  const command = binary.path ?? binary.name ?? 'codex'
   return platform === 'win32'
-    ? ['cmd.exe', '/d', '/s', '/c', 'codex', 'app-server', '--stdio']
-    : ['codex', 'app-server', '--stdio']
+    ? ['cmd.exe', '/d', '/s', '/c', command, 'app-server', '--stdio']
+    : [command, 'app-server', '--stdio']
+}
+
+/**
+ * Loopback proxy + one-shot home to spin up for an intranet run. When present,
+ * `startCodexRun` starts the bridge, writes a fresh CODEX_HOME whose
+ * `base_url` is that bridge, scrubs the child environment, and releases all
+ * three on teardown. Absent by default, which preserves the existing
+ * direct-spawn behavior.
+ */
+export interface CodexLoopback {
+  /** The single intranet model endpoint the bridge may reach. */
+  readonly upstreamBaseUrl: string
+  /** Intranet model id the app-server must use. */
+  readonly model: string
+  /** Responses path; defaults to `/v1/responses`. */
+  readonly path?: string
+  /** Wire API advertised; defaults to `responses`. */
+  readonly wireApi?: string
+  /** Sandbox mode; defaults to `read-only`. */
+  readonly sandboxMode?: string
+  /**
+   * Optional Authorization replacement hook. When set, the real key stays out
+   * of the child environment and the bridge injects it per upstream request.
+   */
+  readonly credential?: BridgeCredentialResolver
 }
 
 /** Fully resolved inputs for one Codex app-server run. */
@@ -47,6 +100,10 @@ export interface CodexRunSpec {
   readonly cwd: string
   /** Explicit deployment/test environment layered after the shared scrub. */
   readonly env: Record<string, string>
+  /** Codex executable location; defaults to `codex` from PATH. */
+  readonly binary?: CodexBinary
+  /** Loopback proxy + one-shot home; absent keeps direct-spawn behavior. */
+  readonly loopback?: CodexLoopback
   /** Subprocess termination grace passed to the shared process-tree owner. */
   readonly disposeGraceMs: number
   /** Shared subprocess service spawn operation. */
@@ -122,19 +179,76 @@ export async function startCodexRun(
     throw new Error('subagent-codex: request was aborted before app-server startup')
   }
 
-  const child = spec.spawn({
-    argv: codexAppServerArgv(),
-    cwd: spec.cwd,
-    stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
-    graceMs: spec.disposeGraceMs,
-    env: spec.env,
-  })
+  // Spin up the loopback bridge and one-shot home before spawning the child so
+  // config.toml can point at the bridge's freshly allocated port. Any partial
+  // setup is released on failure.
+  let bridge: LoopbackBridge | undefined
+  let home: CodexHome | undefined
+  if (spec.loopback !== undefined) {
+    bridge = await startLoopbackBridge({
+      upstreamBaseUrl: spec.loopback.upstreamBaseUrl,
+      ...(spec.loopback.path !== undefined ? { path: spec.loopback.path } : {}),
+      ...(spec.loopback.credential !== undefined
+        ? { credential: spec.loopback.credential }
+        : {}),
+    })
+    try {
+      home = createCodexHome({
+        model: spec.loopback.model,
+        baseUrl: bridge.baseUrl,
+        ...(spec.loopback.wireApi !== undefined
+          ? { wireApi: spec.loopback.wireApi }
+          : {}),
+        ...(spec.loopback.sandboxMode !== undefined
+          ? { sandboxMode: spec.loopback.sandboxMode }
+          : {}),
+      })
+    } catch (error: unknown) {
+      await bridge.close().catch(() => {})
+      throw error
+    }
+  }
+  const releaseLoopback = async (): Promise<void> => {
+    // Release both resources even if one throws, so a failed home removal can
+    // never leak the bridge's port (or vice versa) across a teardown.
+    const errors: unknown[] = []
+    try { await home?.dispose() } catch (error: unknown) { errors.push(error) }
+    try { await bridge?.close() } catch (error: unknown) { errors.push(error) }
+    if (errors.length === 1) throw errors[0]
+    if (errors.length > 1) {
+      throw new AggregateError(errors, 'subagent-codex: loopback release failed')
+    }
+  }
+
+  // The scrub only applies in loopback mode; direct-spawn keeps the exact
+  // environment a caller supplied so existing deployments are unchanged.
+  const childEnv = spec.loopback !== undefined
+    ? scrubChildEnv(spec.env)
+    : spec.env
+  if (home !== undefined) childEnv.CODEX_HOME = home.dir
+
+  let child: SubprocessHandle
+  try {
+    child = spec.spawn({
+      argv: codexAppServerArgv(process.platform, spec.binary),
+      cwd: spec.cwd,
+      stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
+      graceMs: spec.disposeGraceMs,
+      env: childEnv,
+    })
+  } catch (error: unknown) {
+    await releaseLoopback()
+    throw error
+  }
 
   const wire = new CodexAppServerWire(
     child.stdout as NonNullable<SubprocessHandle['stdout']>,
     child.stdin as NonNullable<SubprocessHandle['stdin']>,
   )
-  const disposeProcess = (): Promise<void> => disposeCodexChild(wire, child)
+  const disposeProcess = async (): Promise<void> => {
+    await disposeCodexChild(wire, child)
+    await releaseLoopback()
+  }
 
   const processFailure: Promise<never> = child.done.then(
     outcome => Promise.reject(new Error(

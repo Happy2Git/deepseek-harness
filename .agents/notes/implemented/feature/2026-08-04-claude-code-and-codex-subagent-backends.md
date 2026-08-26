@@ -34,7 +34,7 @@ fixed tool -> dsh-tool-subagent -> ctx.subagents -> product provider -> product 
 
 ## Codex provider
 
-`@deepseek-ai/dsh-subagent-codex` registers the fixed `codex` provider and starts `codex app-server --stdio` from `PATH`. Its public configuration contains only an explicit `env` overlay and a positive finite `disposeGraceMs` no greater than the repository's shared `MAX_TIMER_DELAY_MS`. Installation, login, `CODEX_HOME`, model selection, base URL, sandbox, approval policy, and product-session settings remain native Codex or deployment responsibilities.
+`@deepseek-ai/dsh-subagent-codex` registers the fixed `codex` provider and starts `codex app-server --stdio` from `PATH`. Its public configuration has an explicit `env` overlay, a positive finite `disposeGraceMs` no greater than the repository's shared `MAX_TIMER_DELAY_MS`, and an optional `loopback` block that starts a loopback-only bridge to one intranet model endpoint. Installation, login, `CODEX_HOME`, model selection, base URL, sandbox, approval policy, and product-session settings remain native Codex or deployment responsibilities; when `loopback` is set the provider instead owns a fresh disposable `CODEX_HOME` and the bridge endpoint. The [intranet loopback bridge decision](2026-08-26-subagent-codex-intranet-loopback-bridge.md) owns that mode.
 
 Before publication, the provider validates a non-empty text-only task, starts the managed app-server in the parent workspace, completes `initialize` → `initialized`, and creates an `ephemeral: true` thread. The published run owns exactly one `turn/start`; its thread and turn ids remain private and are never persisted in the parent Session.
 

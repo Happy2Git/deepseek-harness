@@ -1692,6 +1692,16 @@ export interface Config extends SessionQueryConfig {
   snippetChars?: number
   /** Maximum concurrent persisted-log inspections in one inherited batch read. Defaults to 4. */
   persistedInspectConcurrency?: number
+  /**
+   * FTS5 tokenizer for the derived tables. `unicode61` (the default) matches
+   * whole whitespace/punctuation-delimited tokens; a CJK sentence without
+   * spaces indexes as one long token, so short Chinese terms inside it do not
+   * match. `trigram` supports arbitrary substring matching at ~3x index size;
+   * queries under three code points fall back to a full scan with substring
+   * semantics and no ranking advantage. Switching the value rebuilds the
+   * derived index from the logs on the next open.
+   */
+  tokenize?: FtsTokenizer
 }
 
 /** SQLite module/handle opening phase; `never` disables full-text search entirely. */
@@ -1699,11 +1709,14 @@ export type OpenAt = 'startup' | 'first-search' | 'never'
 
 /** Supported SQLite journal modes. */
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
+
+/** FTS5 tokenizer backing the derived full-text tables. */
+export type FtsTokenizer = 'unicode61' | 'trigram'
 ```
 
 Depends on: [`SessionQueryConfig`](../packages/session-query/session-query/src/index.ts)
 
-Source: [`packages/session-query/session-query-sqlite/src/index.ts:89`](../packages/session-query/session-query-sqlite/src/index.ts)
+Source: [`packages/session-query/session-query-sqlite/src/index.ts:92`](../packages/session-query/session-query-sqlite/src/index.ts)
 
 <a id="deepseek-aidsh-session-reference"></a>
 
@@ -2119,6 +2132,41 @@ export interface Config {
   env?: Record<string, string>
   /** Grace in milliseconds for app-server process-tree termination. */
   disposeGraceMs?: number
+  /**
+   * Bare Codex app-server command name resolved from PATH. Defaults to
+   * `codex`; an intranet build of the trimmed binary is `dsh_inner_codex`.
+   * `binaryPath` wins when both are set.
+   */
+  binaryName?: string
+  /**
+   * Explicit Codex app-server executable path, resolved before `binaryName`.
+   * Lets an intranet deployment point at `dsh_inner_codex` without polluting
+   * PATH. Prefer this over `binaryName` when the executable is in a known
+   * build directory.
+   */
+  binaryPath?: string
+  /**
+   * Loopback bridge + one-shot CODEX_HOME. When set, the plugin starts a
+   * loopback-only reverse proxy, points the child's config.toml at it, and
+   * converges every model request at `upstreamBaseUrl`. The API key still
+   * travels via `env` under `DSH_CODEX_TOKEN`; a code-level caller may
+   * additionally supply a credential resolver through the run spec.
+   */
+  loopback?: ConfigLoopback
+}
+
+/** Deployment-facing loopback bridge values (all data, serializable from yml). */
+export interface ConfigLoopback {
+  /** The single intranet model endpoint the bridge may reach. */
+  readonly upstreamBaseUrl: string
+  /** Intranet model id the app-server must use. */
+  readonly model: string
+  /** Responses path; defaults to `/v1/responses`. */
+  readonly path?: string
+  /** Wire API advertised; defaults to `responses`. */
+  readonly wireApi?: string
+  /** Sandbox mode; defaults to `read-only`. */
+  readonly sandboxMode?: string
 }
 ```
 

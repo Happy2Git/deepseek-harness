@@ -24,8 +24,13 @@
 |---|---|---|
 | `env` | `{}` | 显式指定的子进程环境，叠加在由子进程 seam 清除凭证后的父环境之上。 |
 | `disposeGraceMs` | `3000` | 共享进程树责任方各终止层级之间的宽限期，单位为毫秒且须为正有限值，并不得大于仓库共享的 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md)；随后资源释放会等待整棵进程树退出。 |
+| `binaryName` | — | 要启动的 Codex 可执行命令名，替代 `codex`，例如 `dsh_inner_codex`。同时设置时 `binaryPath` 优先。 |
+| `binaryPath` | — | 显式的 Codex 可执行路径，优先于 `binaryName`。让内网部署无需污染 `PATH` 即可指向裁剪后的二进制。 |
+| `loopback` | — | 启用回环桥：一个位于 `127.0.0.1` 的反向代理，把每个模型请求汇到 `loopback.upstreamBaseUrl`。需要同时提供 `upstreamBaseUrl` 和 `model`；默认缺省（直接 spawn）。每次运行获得一个全新的可丢弃 `CODEX_HOME`，其 `config.toml` 指向该桥，并锁定 `approval_policy`、`sandbox_mode`，同时关闭 analytics 与所有 OTel 导出器。 |
 
 生产环境会从 `PATH` 中解析 `codex`，并使用宿主机原生的 Codex 配置与身份验证。本插件不安装 Codex、不选择模型、不创建 `CODEX_HOME`、不执行登录，也不探测版本。子进程 seam 会移除具有凭证特征的环境变量，因此供子进程使用的 API 密钥必须在 `env` 中显式提供；除非被覆盖，`PATH` 和 `HOME` 等普通环境变量值仍然可用。
+
+设置 `loopback` 后，插件会启动一个仅限回环的反向代理，写入一个全新的 `CODEX_HOME`（其 `config.toml` 的 `base_url` 指向该代理），并清除子进程环境（遥测导出器、代理变量、远端凭证）。`env` 随后在 `DSH_CODEX_TOKEN` 下提供桥令牌，`config.toml` 的 `env_key` 会读取它。该桥只能访问 `upstreamBaseUrl` —— 没有回退 —— 每个被接受的请求都会转发到那里；代码级调用方还可以通过 run spec 提供凭证解析器，从而彻底把真实密钥排除在子进程环境之外。
 
 生产 `dsh` 不会安装或挂载这个可选提供方。选择启用它的 Profile 必须安装 `@deepseek-ai/dsh-subagent-codex`，并在 host plane（宿主平面）挂载一次；加载提供方本身不会在工具调用前启动 Codex 进程。完整 Agent Preset 携带对应的产品工具行并设置 `disabled: true`；复制一个 preset 后删除该字段，即可只向由该副本组装的 agent 暴露 `subagent_codex`。其 `one-shot` 策略会让省略 `run_in_background` 或传入 `false` 的调用继续在前台等待，而显式传入 `true` 会返回由父 agent 拥有的 Job ID，供 `job_output` 或 `job_kill` 使用。base host（基础宿主）与完整 preset 已提供通用作业注册表和控制工具。
 
@@ -96,3 +101,5 @@ Codex 子级会在一个全新的临时线程中，以单个轮次接收这些�
 - **产品载荷仅包含最终文本**：推理、过程说明、中间消息、工具通信、用量信息、stderr 和工作区差异仍只保留在产品内部；通用 Job id、通知与状态来自共享作业运行时。
 - **没有可选的共享能力**：对于本提供方，共享服务会拒绝输出 schema、子任务角色设定、工具筛选和 harness 深度强制约束。
 - **没有按实际经过时间触发的超时或副作用回滚**：长时间运行的工作由调用方取消，且取消前已更改的文件或外部系统不会恢复原状。
+- **回环桥仅服务一个上游且仅限 HTTP 传输**：它只转发到配置的 `upstreamBaseUrl`，没有故障切换，不翻译线协议，也不替代子进程自身的沙箱；被清洗的环境是防御层，而非操作系统边界。
+- **桥的凭证替换由代码解析，而非 yml 解析**：`loopback` 配置只携带数据字段，因此真实 API 密钥仍经 `env` 在 `DSH_CODEX_TOKEN` 下传递；按请求的凭证解析器是面向代码调用方的 run-spec 能力。
