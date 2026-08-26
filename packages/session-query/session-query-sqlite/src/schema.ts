@@ -43,7 +43,14 @@ async function createDatabaseFile(path: string): Promise<void> {
  * @param journalMode - validated SQLite journal mode.
  * @returns initialized database handle owned by the search service.
  */
-export async function openSearchDatabase(path: string, journalMode: JournalMode): Promise<DatabaseSync> {
+/** FTS5 tokenizer backing the derived full-text tables. */
+export type FtsTokenizer = 'unicode61' | 'trigram'
+
+export async function openSearchDatabase(
+  path: string,
+  journalMode: JournalMode,
+  tokenize: FtsTokenizer,
+): Promise<DatabaseSync> {
   const actual = path === ':memory:' ? path : resolve(path)
   if (actual !== ':memory:') {
     await mkdir(dirname(actual), { recursive: true, mode: 0o700 })
@@ -63,13 +70,20 @@ export async function openSearchDatabase(path: string, journalMode: JournalMode)
     }
     if (applicationId === SESSION_QUERY_SQLITE_APPLICATION_ID) {
       assertDerivedUserTables(actual, userTables)
-      if (version !== SESSION_QUERY_SQLITE_SCHEMA_VERSION) resetDerivedSchema(db, userTables)
+      // A tokenizer switch changes token identity for every indexed document,
+      // so the stored tables must be rebuilt even though the layout version
+      // is unchanged; the rebuild re-derives everything from the logs.
+      const existingTokenizer = readExistingTokenizer(db)
+      if (
+        version !== SESSION_QUERY_SQLITE_SCHEMA_VERSION
+        || (existingTokenizer !== undefined && existingTokenizer !== tokenize)
+      ) resetDerivedSchema(db, userTables)
     }
     // Apply mutating pragmas only after refusing foreign or canonical files.
     // journalMode is a validated closed union, not caller-controlled SQL.
     db.exec(`PRAGMA journal_mode = ${journalMode.toUpperCase()}`)
-    ensurePersistentSchema(db)
-    ensureTemporarySchema(db)
+    ensurePersistentSchema(db, tokenize)
+    ensureTemporarySchema(db, tokenize)
     return db
   } catch (error: unknown) {
     db.close()
@@ -82,6 +96,20 @@ function listUserTables(db: DatabaseSync): string[] {
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT GLOB 'sqlite_*' ORDER BY name",
   ).all() as Array<{ name: string }>
   return rows.map(row => row.name)
+}
+
+
+/**
+ * Read the tokenizer recorded in an existing `persisted_docs` DDL.
+ * @param db - opened derived-index handle.
+ * @returns the stored tokenizer name, or undefined before first creation.
+ */
+function readExistingTokenizer(db: DatabaseSync): FtsTokenizer | undefined {
+  const row = db.prepare(
+    'SELECT sql FROM sqlite_master WHERE type = \'table\' AND name = \'persisted_docs\'',
+  ).get() as { sql?: string } | undefined
+  if (row?.sql === undefined) return undefined
+  return row.sql.includes("tokenize = 'trigram'") ? 'trigram' : 'unicode61'
 }
 
 function assertDerivedUserTables(path: string, userTables: readonly string[]): void {
@@ -100,7 +128,9 @@ function resetDerivedSchema(db: DatabaseSync, userTables: readonly string[]): vo
   db.exec('PRAGMA user_version = 0')
 }
 
-function ensurePersistentSchema(db: DatabaseSync): void {
+function ensurePersistentSchema(db: DatabaseSync, tokenize: FtsTokenizer): void {
+  // The tokenizer comes from the validated closed union in openSearchDatabase;
+  // its interpolation into the DDL below is not caller-controlled SQL.
   db.exec(`PRAGMA application_id = ${SESSION_QUERY_SQLITE_APPLICATION_ID}`)
   db.exec(`
     CREATE TABLE IF NOT EXISTS search_state (
@@ -132,13 +162,13 @@ function ensurePersistentSchema(db: DatabaseSync): void {
       time UNINDEXED,
       surface UNINDEXED,
       codepoint_length UNINDEXED,
-      tokenize = 'unicode61'
+      tokenize = '${tokenize}'
     )
   `)
   db.exec(`PRAGMA user_version = ${SESSION_QUERY_SQLITE_SCHEMA_VERSION}`)
 }
 
-function ensureTemporarySchema(db: DatabaseSync): void {
+function ensureTemporarySchema(db: DatabaseSync, tokenize: FtsTokenizer): void {
   db.exec(`
     CREATE TEMP TABLE IF NOT EXISTS live_sessions (
       id             TEXT PRIMARY KEY,
@@ -163,7 +193,7 @@ function ensureTemporarySchema(db: DatabaseSync): void {
       time UNINDEXED,
       surface UNINDEXED,
       codepoint_length UNINDEXED,
-      tokenize = 'unicode61'
+      tokenize = '${tokenize}'
     )
   `)
 }

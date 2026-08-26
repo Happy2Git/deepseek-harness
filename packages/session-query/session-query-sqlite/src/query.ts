@@ -225,6 +225,16 @@ export function quoteFtsData(query: string): string {
 }
 
 /**
+ * Escape a query for literal use inside a `LIKE` pattern driven with
+ * `ESCAPE '\\'`: backslash, `%`, and `_` lose their wildcard meaning.
+ * @param query - raw caller query.
+ * @returns pattern matching the query as a literal substring.
+ */
+export function escapeLikePattern(query: string): string {
+  return query.replace(/[\\%_]/g, '\\$&')
+}
+
+/**
  * Remove reserved marker collisions before text enters FTS5 or MATCH.
  * @param text - extracted document text or normalized caller query.
  * @returns text with reserved noncharacters mapped to replacement characters.

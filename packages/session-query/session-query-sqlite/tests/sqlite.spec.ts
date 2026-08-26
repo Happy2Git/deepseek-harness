@@ -1816,4 +1816,58 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     await searchB.dispose()
     await persistenceB.dispose()
   })
+
+  it('matches CJK substrings under trigram, with a LIKE scan for short queries', async () => {
+    const ctx = await liveContext({ path: ':memory:', tokenize: 'trigram' })
+    const service = ctx.sessionQuery as SqliteSessionQueryEngine
+    ctx.sessions.create(SessionId('tri'), {
+      seed: messageEvents('今天讨论会话搜索功能的性能', 10),
+      meta: { createdAt: 10 },
+    })
+
+    // At or above three code points: trigram MATCH finds the substring that
+    // unicode61 folds into one long token.
+    await expect(service.searchSessions({ query: '会话搜索功能' }))
+      .resolves.toMatchObject({ items: [{ header: { id: 'tri' } }] })
+    // Below three code points: the LIKE scan keeps substring semantics, and
+    // the hand-built snippet still carries highlight markers.
+    await expect(service.searchSessions({ query: '搜索功能' }))
+      .resolves.toMatchObject({ items: [{ header: { id: 'tri' } }] })
+    const short = await service.searchSessions({ query: '搜索' })
+    expect(short.items).toHaveLength(1)
+    expect(short.items[0].bestMatch.snippet).toContain('搜索')
+
+    // The default tokenizer keeps its whole-token semantics for comparison.
+    const plain = await liveContext({ path: ':memory:' })
+    plain.sessions.create(SessionId('plain'), {
+      seed: messageEvents('今天讨论会话搜索功能的性能', 10),
+      meta: { createdAt: 10 },
+    })
+    await expect((plain.sessionQuery as SqliteSessionQueryEngine).searchSessions({ query: '会话搜索' }))
+      .resolves.toEqual({ items: [] })
+  })
+
+  it('validates tokenize config and rebuilds derived tables on a tokenizer switch', async () => {
+    expect(() => new SqliteSessionQueryEngine.Config({ path: ':memory:', tokenize: 'bogus' as never })).toThrow()
+    expect(new SqliteSessionQueryEngine.Config({ path: ':memory:' }).tokenize).toBe('unicode61')
+
+    const path = await temporaryPath('retokenized.db')
+    const trigramCtx = new Context()
+    await trigramCtx.plugin(SessionStore)
+    await trigramCtx.plugin(SqliteSessionQueryEngine, { path, tokenize: 'trigram' })
+    const readDdl = (): string => {
+      const db = new DatabaseSync(path)
+      try {
+        const row = db.prepare("SELECT sql FROM sqlite_master WHERE name = 'persisted_docs'").get() as { sql: string }
+        return row.sql
+      } finally { db.close() }
+    }
+    expect(readDdl()).toContain("tokenize = 'trigram'")
+
+    // Reopening with the other tokenizer rebuilds in place.
+    const unicodeCtx = new Context()
+    await unicodeCtx.plugin(SessionStore)
+    await unicodeCtx.plugin(SqliteSessionQueryEngine, { path })
+    expect(readDdl()).toContain("tokenize = 'unicode61'")
+  })
 })
