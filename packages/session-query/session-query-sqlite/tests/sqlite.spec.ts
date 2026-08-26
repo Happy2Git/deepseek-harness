@@ -1835,7 +1835,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
       .resolves.toMatchObject({ items: [{ header: { id: 'tri' } }] })
     const short = await service.searchSessions({ query: '搜索' })
     expect(short.items).toHaveLength(1)
-    expect(short.items[0].bestMatch.snippet).toContain('搜索')
+    expect(short.items[0]!.bestMatch.snippet).toContain('搜索')
 
     // The default tokenizer keeps its whole-token semantics for comparison.
     const plain = await liveContext({ path: ':memory:' })
