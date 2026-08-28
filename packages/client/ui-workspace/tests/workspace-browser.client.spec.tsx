@@ -681,11 +681,11 @@ describe('WorkspaceBrowser', () => {
     vi.useFakeTimers()
     try {
       let resolveFirst!: (value: {
-        items: { sessionId: SessionId; snippet: string }[]
+        items: { sessionId: SessionId; snippet: string; seq: number }[]
         hasMore: boolean
       }) => void
       const first = new Promise<{
-        items: { sessionId: SessionId; snippet: string }[]
+        items: { sessionId: SessionId; snippet: string; seq: number }[]
         hasMore: boolean
       }>((resolve) => { resolveFirst = resolve })
       const searchSessions = vi.fn((query: string, _signal: AbortSignal) => query === 'first'
