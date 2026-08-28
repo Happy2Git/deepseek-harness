@@ -37,7 +37,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           rpcId: request.rpcId,
           result: {
             ok: true,
-            value: { items: [{ sessionId: 's1' as never, snippet: 'fixture match' }], hasMore: false },
+            value: { items: [{ sessionId: 's1' as never, snippet: 'fixture match', seq: 3 }], hasMore: false },
           },
         }
       },
@@ -334,7 +334,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const c = client()
     expect((await c.sessions.search({ query: 'fixture' })).result).toEqual({
       ok: true,
-      value: { items: [{ sessionId: 's1', snippet: 'fixture match' }], hasMore: false },
+      value: { items: [{ sessionId: 's1', snippet: 'fixture match', seq: 3 }], hasMore: false },
     })
     expect((await c.sessions.create({})).result.ok).toBe(true)
     expect((await c.sessions.models({ sessionId: 's' as never })).result.ok).toBe(true)

@@ -258,12 +258,12 @@ describe('sessions', () => {
     await expect(runtime.sessions.search('marker', signal))
       .resolves.toEqual({ ok: true, value: { items: [], hasMore: false } })
     runtime.sessions.stubSearch(query => ({
-      items: [{ sessionId: 's1' as SessionId, snippet: `hit: ${query}` }],
+      items: [{ sessionId: 's1' as SessionId, snippet: `hit: ${query}`, seq: 5 }],
       hasMore: true,
     }))
     await expect(runtime.sessions.search('marker', signal)).resolves.toEqual({
       ok: true,
-      value: { items: [{ sessionId: 's1', snippet: 'hit: marker' }], hasMore: true },
+      value: { items: [{ sessionId: 's1', snippet: 'hit: marker', seq: 5 }], hasMore: true },
     })
     expect(runtime.sessions.calls).toEqual([
       { method: 'search', args: ['marker', signal] },

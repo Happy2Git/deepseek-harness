@@ -37,6 +37,8 @@ export type SessionListPhase = 'pending' | 'ready'
 export interface SessionSearchResultItem {
   sessionId: SessionId
   snippet: string
+  /** Event seq of the match — the coordinate that reveals it in the transcript. */
+  seq: number
 }
 
 /** Immutable session-list snapshot for useSessionList. */

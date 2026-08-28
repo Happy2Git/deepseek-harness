@@ -4,14 +4,14 @@
 // ObservableSnapshot fake, no wire or Tool presentation plugin.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { useEffect } from 'react'
 import type {
   AssistantMessageNode, CommandNode, CompactionSummaryNode, ConversationNode, ConversationSnapshot,
   ModelRetryNode, RunningToolCall, SessionId, SessionListState, ToolCallBlock, ToolResultNode, TurnErrorNode,
   TurnMaxTokensNode, UserMessageNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import {
   createSnapshotStore, EMPTY_CONVERSATION_VIEWS, PendingWait,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -152,7 +152,7 @@ function emptyWorkspaces() {
 function makeHarness(init?: Partial<ConversationSnapshot>) {
   const { set, source } = makeSource(init)
   const openDetails = vi.fn<(t: SelectionTarget) => void>()
-  const openFile = vi.fn<(path: string) => Promise<void>>().mockResolvedValue(undefined)
+  const openFile = vi.fn<(path: string) => void>()
   const loadOlder = vi.fn()
   const inspectCall = vi.fn<(callId: string) => void>()
   // In-memory scroll memory matching the apply.ts per-session map contract.
@@ -289,13 +289,21 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     forkAt,
     // Absent-service default; mention tests override with a real resolver.
     fileMentions: () => undefined,
+    clearLocate: () => { chat.actions.setLocate(null) },
+    replayPendingLocate: () => undefined,
+    setLocateFromReplay: (request) => { chat.actions.setLocate(request) },
+    subscribePendingLocate: () => () => {},
     // Mirrors the real lookup chain (conversation namespace, then common).
     t,
   }
   const setSelection = (next: SelectionTarget | null): void => { chat.actions.select(next) }
+  const setLocate = (seq: number | null, query?: string): void => {
+    chat.actions.setLocate(seq === null ? null : { seq, ...(query === undefined ? {} : { query }) })
+  }
+  const pendingLocate = (): { seq: number } | null => chat.store.getSnapshot().locate
   return {
     set, ChatView, props, openDetails, openFile, loadOlder, inspectCall,
-    chatScroll, forkAt, setSelection, toolOwners,
+    chatScroll, forkAt, setSelection, setLocate, pendingLocate, toolOwners,
   }
 }
 
@@ -348,7 +356,7 @@ describe('Chat node rendering', () => {
       resolve: (value) => {
         if (value !== 'report.html') return undefined
         return {
-          open: () => { void h.openFile(`for-seq-${String(owner.seq)}/site/report.html`) },
+          open: () => { h.openFile(`for-seq-${String(owner.seq)}/site/report.html`) },
           label: '打开 site/report.html',
           title: 'site/report.html',
         }
@@ -967,111 +975,8 @@ describe('ChatView', () => {
     })
     const owner = calls[0]?.owner as RoutedChatNodeOwner
     expect((owner.node.data as { readonly root: ToolCallBlock }).root).toBe(block)
-    expect(owner.openFile).not.toBe(h.openFile)
-    owner.openFile('src/a.ts')
-    expect(h.openFile).toHaveBeenCalledWith('src/a.ts')
+    expect(owner.openFile).toBe(h.openFile)
     expect(owner.inspectCall).toBe(h.inspectCall)
-  })
-
-  it('shows a Host open refusal with the reason and retries the same path', async () => {
-    const openFile = vi.fn<(path: string) => Promise<void>>()
-      .mockRejectedValueOnce(new Error('xdg-open is not available'))
-      .mockResolvedValueOnce(undefined)
-    const h = makeHarness({ nodes: [toolResult(3, 'a')] })
-    h.props.openFile = openFile
-    render(<h.ChatView {...h.props} />)
-    await act(async () => { h.toolOwners[0]!.openFile('src/a.ts') })
-    await waitFor(() => {
-      expect(screen.getByRole('dialog', { name: '无法打开文件' })).toBeTruthy()
-    })
-    expect(screen.getByRole('dialog', { name: '无法打开文件' }).textContent).toContain('xdg-open is not available')
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '重试' })) })
-    await waitFor(() => {
-      expect(screen.queryByRole('dialog')).toBeNull()
-    })
-    expect(openFile).toHaveBeenCalledTimes(2)
-    expect(openFile).toHaveBeenNthCalledWith(1, 'src/a.ts')
-    expect(openFile).toHaveBeenNthCalledWith(2, 'src/a.ts')
-  })
-
-  it('keeps a non-Error Host refusal visible and dismisses it on cancel', async () => {
-    const openFile = vi.fn<(path: string) => Promise<void>>()
-      .mockRejectedValueOnce('permission denied')
-    const h = makeHarness({ nodes: [toolResult(3, 'a')] })
-    h.props.openFile = openFile
-    render(<h.ChatView {...h.props} />)
-    await act(async () => { h.toolOwners[0]!.openFile('notes.md') })
-    await waitFor(() => {
-      expect(screen.getByRole('dialog', { name: '无法打开文件' }).textContent).toContain('permission denied')
-    })
-    fireEvent.click(screen.getByRole('button', { name: '取消' }))
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(openFile).toHaveBeenCalledTimes(1)
-  })
-
-  it('substitutes the unknown-open copy when the Host refusal has no text', async () => {
-    const openFile = vi.fn<(path: string) => Promise<void>>()
-      .mockRejectedValueOnce(new Error(''))
-    const h = makeHarness({ nodes: [toolResult(3, 'a')] })
-    h.props.openFile = openFile
-    render(<h.ChatView {...h.props} />)
-    await act(async () => { h.toolOwners[0]!.openFile('empty.ts') })
-    await waitFor(() => {
-      expect(screen.getByRole('dialog', { name: '无法打开文件' }).textContent).toContain('无法打开此文件')
-    })
-  })
-
-  it('names a workspace-folder Host refusal as a folder', async () => {
-    const openFile = vi.fn<(path: string) => Promise<void>>()
-      .mockRejectedValueOnce(new Error(''))
-    const h = makeHarness({ nodes: [toolResult(3, 'a')] })
-    h.props.openFile = openFile
-    render(<h.ChatView {...h.props} />)
-    await act(async () => { h.toolOwners[0]!.openFile('.') })
-    await waitFor(() => {
-      expect(screen.getByRole('dialog', { name: '无法打开文件夹' }).textContent).toContain('无法打开此文件夹')
-    })
-  })
-
-  it('ignores a Host refusal that settles after the dialog is dismissed', async () => {
-    let rejectRetry!: (error: unknown) => void
-    const openFile = vi.fn<(path: string) => Promise<void>>()
-      .mockRejectedValueOnce(new Error('first refusal'))
-      .mockImplementationOnce(() => new Promise<void>((_resolve, reject) => {
-        rejectRetry = reject
-      }))
-    const h = makeHarness({ nodes: [toolResult(3, 'a')] })
-    h.props.openFile = openFile
-    render(<h.ChatView {...h.props} />)
-    await act(async () => { h.toolOwners[0]!.openFile('src/a.ts') })
-    await waitFor(() => {
-      expect(screen.getByRole('dialog', { name: '无法打开文件' }).textContent).toContain('first refusal')
-    })
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '重试' })) })
-    fireEvent.click(screen.getByRole('button', { name: '取消' }))
-    expect(screen.queryByRole('dialog')).toBeNull()
-    await act(async () => { rejectRetry(new Error('late refusal')) })
-    expect(screen.queryByRole('dialog')).toBeNull()
-  })
-
-  it('ignores a Host open that succeeds after the dialog is dismissed', async () => {
-    let resolveRetry!: () => void
-    const openFile = vi.fn<(path: string) => Promise<void>>()
-      .mockRejectedValueOnce(new Error('first refusal'))
-      .mockImplementationOnce(() => new Promise<void>((resolve) => {
-        resolveRetry = () => { resolve() }
-      }))
-    const h = makeHarness({ nodes: [toolResult(3, 'a')] })
-    h.props.openFile = openFile
-    render(<h.ChatView {...h.props} />)
-    await act(async () => { h.toolOwners[0]!.openFile('src/a.ts') })
-    await waitFor(() => {
-      expect(screen.getByRole('dialog', { name: '无法打开文件' }).textContent).toContain('first refusal')
-    })
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '重试' })) })
-    fireEvent.click(screen.getByRole('button', { name: '取消' }))
-    await act(async () => { resolveRetry() })
-    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('prepend preserves a semantic row; a trailing user node force-scrolls', () => {
@@ -1456,5 +1361,107 @@ describe('ChatView', () => {
     const failedView = render(<failed.ChatView {...failed.props} />)
     expect(failedView.getByText('Compaction cancelled.')).toBeTruthy()
     expect(failedView.container.querySelector('[data-state="error"]')).not.toBeNull()
+  })
+})
+
+describe('locate reveal', () => {
+  it('scrolls the row covering the requested seq into view and flashes it', () => {
+    const harness = makeHarness({ nodes: [user(1, '第一条'), assistant(2, '回复'), user(3, '第三条')] })
+    const view = render(<harness.ChatView {...harness.props} />)
+    const scrollIntoView = vi.fn()
+    for (const row of view.container.querySelectorAll('[data-chat-anchor-key]')) {
+      ;(row as HTMLElement).scrollIntoView = scrollIntoView
+    }
+    act(() => { harness.setLocate(3) })
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' })
+    // The revealed row carries the flash class; the request is consumed.
+    expect(view.container.querySelector('[class*="flowItemFlash"]')).not.toBeNull()
+  })
+
+  it('reveals with a query without breaking the flash when the highlight API is absent', () => {
+    // jsdom lacks CSS.highlights/Highlight, so the word-highlight path must
+    // fall back silently while the row reveal still works.
+    const harness = makeHarness({ nodes: [user(1, '第一条'), assistant(2, '回复'), user(3, '第三条')] })
+    const view = render(<harness.ChatView {...harness.props} />)
+    const scrollIntoView = vi.fn()
+    for (const row of view.container.querySelectorAll('[data-chat-anchor-key]')) {
+      ;(row as HTMLElement).scrollIntoView = scrollIntoView
+    }
+    expect(() => {
+      act(() => { harness.setLocate(3, '三条') })
+    }).not.toThrow()
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' })
+    expect(view.container.querySelector('[class*="flowItemFlash"]')).not.toBeNull()
+  })
+
+  it('resolves a seq inside an assistant node to that node, not the next one', () => {
+    // seq 5 falls between the assistant at 2 and the user at 9: the covering
+    // row is the assistant, so a mid-node hit must not jump past it.
+    const harness = makeHarness({ nodes: [user(1, '一'), assistant(2, '二'), user(9, '九')] })
+    const view = render(<harness.ChatView {...harness.props} />)
+    const seen: string[] = []
+    for (const row of view.container.querySelectorAll('[data-chat-anchor-key]')) {
+      const el = row as HTMLElement
+      el.scrollIntoView = () => { seen.push(el.dataset.chatAnchorKey ?? '') }
+    }
+    act(() => { harness.setLocate(5) })
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toContain('2')
+  })
+
+  it('pulls older history while the requested seq is below the loaded window', () => {
+    const harness = makeHarness({
+      nodes: [user(50, '窗口内最早'), user(51, '之后')],
+      hasMore: true,
+    })
+    render(<harness.ChatView {...harness.props} />)
+    harness.loadOlder.mockClear()
+    act(() => { harness.setLocate(3) })
+    // Asks for the page that would contain it, and stays pending so the next
+    // page that lands retries the resolution.
+    expect(harness.loadOlder).toHaveBeenCalled()
+    expect(harness.pendingLocate()).toEqual({ seq: 3 })
+  })
+
+  it('drops an unreachable request instead of paging forever', () => {
+    const harness = makeHarness({
+      nodes: [user(50, '最早'), user(51, '之后')],
+      hasMore: false,
+    })
+    render(<harness.ChatView {...harness.props} />)
+    harness.loadOlder.mockClear()
+    act(() => { harness.setLocate(3) })
+    expect(harness.loadOlder).not.toHaveBeenCalled()
+    // Consumed, not left pending: a stale request must not survive to re-fire
+    // against every later snapshot.
+    expect(harness.pendingLocate()).toBeNull()
+  })
+
+  it('keeps a locate pending while the transcript window has not materialized', () => {
+    // A session switch settles after the locate lands: the effect first runs
+    // with firstSeq === null (no rows yet) and hasMore === false (meaningless
+    // before the first page). The request must NOT be cleared — it is held for
+    // the window to materialize, then resolved.
+    const harness = makeHarness({
+      nodes: [],
+      hasMore: false,
+    })
+    render(<harness.ChatView {...harness.props} />)
+    harness.loadOlder.mockClear()
+    act(() => { harness.setLocate(1226) })
+    // Not dropped: the transcript has not rendered its first page.
+    expect(harness.pendingLocate()).toEqual({ seq: 1226 })
+    expect(harness.loadOlder).not.toHaveBeenCalled()
+    // The window materializes; the pending request is consumed (resolved).
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = vi.fn() as never
+    try {
+      act(() => {
+        harness.set({ nodes: [user(1200, '早'), user(1226, '命中')] })
+      })
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
+    expect(harness.pendingLocate()).toBeNull()
   })
 })

@@ -125,6 +125,18 @@ export const DEFAULT_COLD_BLANK_PROBE_MAX_BYTES = 1024
 /** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 
+/**
+ * Event types session.search may return. The human conversation only: user
+ * messages and model outputs, matching {@link MESSAGE_TYPES}. Tool calls and
+ * results are deliberately excluded — they are rendered rows, but their text
+ * (commands, dumps, diffs) makes search noisy, so the search surface stays on
+ * the conversation itself.
+ */
+const SEARCHABLE_TYPES = new Set<keyof SessionEventMap>([
+  'user/message',
+  'assistant/message',
+])
+
 /** Validate one prompt as a batch before publishing any durable image object. */
 async function durablePromptContent(ctx: Context, content: readonly PromptContentPart[]): Promise<ContentBlock[]> {
   if (content.every(part => part.type === 'text')) {
@@ -1935,6 +1947,31 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return ok(request, namespaceView(descriptor))
   }
 
+  // The search authorization scope, cached briefly. Building it the full
+  // session-summary way (listVisibleSessionSummaries) reads cold-session
+  // artifacts and projections for every search request — several seconds on a
+  // large corpus — while search only needs the visible session id set. Live
+  // ids come from memory; cold ids from the persistence header list (no log
+  // loads). The short window keeps a just-created or just-removed session
+  // reflecting within a couple of seconds, which is fine for a search surface.
+  const SEARCH_SCOPE_TTL_MS = 2000
+  let searchScopeCache: { at: number; ids: Set<SessionId> } | undefined
+  const listVisibleSearchScope = async (signal?: AbortSignal): Promise<Set<SessionId>> => {
+    if (searchScopeCache !== undefined && Date.now() - searchScopeCache.at < SEARCH_SCOPE_TTL_MS) {
+      return searchScopeCache.ids
+    }
+    const ids = new Set<SessionId>()
+    for (const session of ctx.sessions.list()) ids.add(session.id)
+    const persistence = ctx.get('sessionPersistence')
+    if (persistence !== undefined) {
+      const cold = (await persistence.list(signal))
+        .filter(meta => !ids.has(meta.id) && meta.cwd !== undefined)
+      for (const meta of cold) ids.add(meta.id)
+    }
+    searchScopeCache = { at: Date.now(), ids }
+    return ids
+  }
+
   return {
     sessions: {
       // Attached sessions summarize from memory; persisted-but-unattached (cold)
@@ -1961,10 +1998,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           })
         }
         try {
-          const visible = await listVisibleSessionSummaries(signal)
+          const visibleIds = await listVisibleSearchScope(signal)
           if (isAborted(signal)) return cancelled()
-          if (visible.length === 0) return ok(request, { items: [], hasMore: false })
-          const visibleIds = new Set(visible.map(item => item.sessionId))
+          if (visibleIds.size === 0) return ok(request, { items: [], hasMore: false })
           const authorized: SessionSearchItem[] = []
           const acceptedIds = new Set<SessionId>()
           const seenCursors = new Set<SessionSearchCursor>()
@@ -1986,7 +2022,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               page = await sessionQuery.searchSessions({
                 query: request.payload.query,
                 eventFilters: [
-                  { kind: 'type', values: ['user/message', 'assistant/message'] },
+                  { kind: 'type', values: [...SEARCHABLE_TYPES] },
+                  // Load-bearing: the human transcript renders append-origin
+                  // events only, so a shadowed or log-only hit would be a
+                  // result the client can show but never scroll to.
                   { kind: 'surface', values: ['current'] },
                 ],
                 limit: requestedPageLimit,
@@ -2034,7 +2073,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 !visibleIds.has(hit.header.id)
                 || hit.bestMatch.sessionId !== hit.header.id
                 || hit.bestMatch.surface !== 'current'
-                || !MESSAGE_TYPES.has(hit.bestMatch.type)
+                || !SEARCHABLE_TYPES.has(hit.bestMatch.type)
                 || acceptedIds.has(hit.header.id)
               ) continue
               const snippet = truncateUnicodeCodePoints(
@@ -2045,6 +2084,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               authorized.push({
                 sessionId: hit.header.id,
                 snippet,
+                seq: hit.bestMatch.seq,
               })
             }
             const nextCursor = page.nextCursor
