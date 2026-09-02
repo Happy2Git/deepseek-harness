@@ -50,7 +50,12 @@ function classifyPiAiError(message: string): string {
   // finish_reason`). The connection dropped mid-response, so this is a transport
   // truncation, not a model-level error.
   if (/stream ended (?:before|without)\b/i.test(message)) return 'TRANSPORT'
-  if (/\b(?:network|connection|socket|fetch)\b|\bECONN[A-Z]+\b/i.test(message)
+  // pi-ai reports a gateway truncation as stopReason "error" with errorMessage
+  // "Provider finish_reason: network_error". The underscore joins network and
+  // error into one wire token, so the \bnetwork\b boundary below would miss it
+  // and let a transient cut fall through to the permanent PI_AI_ERROR code.
+  if (/finish_reason:\s*network_error/i.test(message)) return 'TRANSPORT'
+  if (/\b(?:network|connection|socket|fetch)(?:_error)?\b|\bECONN[A-Z]+\b/i.test(message)
     || /\b(?:other side closed|HTTP2 request did not get a response|WebSocket closed unexpectedly)\b/i.test(message)
     // undici renders a mid-stream socket drop as a bare `terminated` (its
     // `cause` — the real SocketError — was flattened away upstream); Node's

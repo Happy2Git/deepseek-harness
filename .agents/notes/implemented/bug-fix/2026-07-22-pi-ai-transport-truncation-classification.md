@@ -14,7 +14,8 @@ The detail loss is upstream and unrecoverable in the adapter: pi-ai reduces a ca
 
 - `classifyPiAiError` recognizes two more transport wordings and maps both to `TRANSPORT`:
   - a mid-stream socket drop rendered as a bare `terminated` (undici) or `Premature close` (Node stream layer);
-  - a stream truncated before its terminal event, which each pi-ai provider throws with its own wording (`Anthropic stream ended before message_stop`, `… before a terminal response event`, `… ended without a terminal event`, `Stream ended without finish_reason`), matched on `stream ended before/without`.
+  - a stream truncated before its terminal event, which each pi-ai provider throws with its own wording (`Anthropic stream ended before message_stop`, `… before a terminal response event`, `… ended without a terminal event`, `Stream ended without finish_reason`), matched on `stream ended before/without`;
+  - a provider-reported terminal truncation relayed by the OpenRouter/zen gateways as `stopReason: "error"` with `errorMessage` `Provider finish_reason: network_error`. The snake_case `network_error` is one wire token (the underscore is a word character), so the `\bnetwork\b` alternation would miss it; an explicit `finish_reason:\s*network_error` pattern plus a `(?:_error)?` suffix on the transport words maps it before the catch-all.
 - The classifier carries an `XXX(pi-ai upstream)` note naming the flattening site and stating the intended fix: classify on `code`/`cause` if pi-ai ever forwards the original `Error` or a hook that lets us capture the `cause`. Classification stays best-effort text matching until then.
 - `llm-pi-ai/README.md` gains a Known-Limitations bullet recording that pi-ai flattens the cause chain and that harness codes are therefore classified from message text.
 
@@ -32,4 +33,4 @@ Classification stays on message text because that is the only signal pi-ai deliv
 
 - A mid-stream transport drop and a pre-terminal stream truncation now carry `TRANSPORT`, so a composed `llm-retry` policy retries them by default instead of failing the turn.
 - The notice text is unchanged (`terminated` / `Anthropic stream ended before message_stop`): the cause detail is gone before the adapter sees it, so `errorChain` has nothing more to render. Only the routed `code` improved.
-- Classification remains string-matching and provider-wording-dependent: a future pi-ai release that rewords these errors would silently fall back to `PI_AI_ERROR` until the patterns are updated. The `XXX` note points at the durable fix (route on a forwarded `code`/`cause`).
+- Classification remains string-matching and provider-wording-dependent: a gateway relays `finish_reason: network_error` verbatim, and a future pi-ai release that rewords these errors would silently fall back to `PI_AI_ERROR` until the patterns are updated. The `XXX` note points at the durable fix (route on a forwarded `code`/`cause`).

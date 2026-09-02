@@ -794,6 +794,11 @@ describe('mapStopReason / mapUsage', () => {
     'OpenAI Responses stream ended before a terminal response event',
     'openrouter stream ended without a terminal event',
     'Stream ended without finish_reason',
+    // provider-reported gateway truncation: the zen/OpenRouter gateways emit a
+    // snake_case terminal reason the pi-ai adapter relays verbatim.
+    'Provider finish_reason: network_error',
+    'finish_reason: network_error',
+    'connection_error',
   ])('maps pi-ai transport wording %j', (errorMessage) => {
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage })))
       .toMatchObject({ kind: 'error', failure: { code: 'TRANSPORT' } })

@@ -334,6 +334,31 @@ describe('PiAiAdapter provider routing', () => {
     })
   })
 
+  it('classifies a provider-reported network_error finish as a retryable transport cut', async () => {
+    // The zen/OpenRouter-style gateways end the SSE stream with this terminal
+    // reason after a partial generation; pi-ai relays it verbatim as the
+    // errorMessage and the classifier must route it to TRANSPORT (retryable),
+    // not the permanent PI_AI_ERROR catch-all.
+    const events = [
+      '{"choices":[{"delta":{"role":"assistant","content":""},"index":0,"finish_reason":null}]}',
+      '{"choices":[{"delta":{"content":"partial"},"index":0,"finish_reason":null}]}',
+      '{"choices":[{"delta":{},"index":0,"finish_reason":"network_error"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
+      '[DONE]',
+    ]
+    const server = await mockServer([{ events }])
+    const ctx = await harness(server.url)
+
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+
+    expect(result.finish).toEqual({
+      kind: 'error',
+      failure: {
+        message: 'Provider finish_reason: network_error',
+        code: 'TRANSPORT',
+      },
+    })
+  })
+
   it('stops the SDK request when the adapter idle watchdog expires', async () => {
     const server = await mockServer([{ events: textEvents, delayMs: 200 }])
     const ctx = await harness(server.url, { streamIdleTimeoutMs: 20 })

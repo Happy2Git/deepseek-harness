@@ -14,7 +14,8 @@ Status: implemented
 
 - `classifyPiAiError` 识别另外两种传输层措辞，并将两者都映射为 `TRANSPORT`：
   - 流式输出中途的套接字断开，呈现为裸的 `terminated`（undici）或 `Premature close`（Node 流层）；
-  - 在终止事件之前被截断的流，每个 pi-ai 提供方各自抛出不同措辞（`Anthropic stream ended before message_stop`、`… before a terminal response event`、`… ended without a terminal event`、`Stream ended without finish_reason`），统一按 `stream ended before/without` 匹配。
+  - 在终止事件之前被截断的流，每个 pi-ai 提供方各自抛出不同措辞（`Anthropic stream ended before message_stop`、`… before a terminal response event`、`… ended without a terminal event`、`Stream ended without finish_reason`），统一按 `stream ended before/without` 匹配；
+  - OpenRouter/zen 网关以 `stopReason: "error"` 加 `errorMessage` 为 `Provider finish_reason: network_error` 的形式转发的、由提供方上报的终止截断。snake_case 的 `network_error` 是一个完整的线上令牌（下划线是单词字符），因此 `\bnetwork\b` 交替分支会漏掉它；先以显式的 `finish_reason:\s*network_error` 模式，再以传输词上的 `(?:_error)?` 后缀把它映射掉，避免落入兜底。
 - 该分类器带有一条 `XXX(pi-ai upstream)` 注记，点名扁平化发生的位置并说明期望的修复方式：如果 pi-ai 有朝一日转发原始的 `Error` 或提供一个让我们捕获 `cause` 的钩子，就改为基于 `code`/`cause` 分类。在此之前分类仍是尽力而为的文本匹配。
 - `llm-pi-ai/README.md` 新增一条 Known-Limitations 条目，记录 pi-ai 会扁平化 cause 链，因此 harness code 是从消息文本中分类出来的。
 
@@ -32,4 +33,4 @@ Status: implemented
 
 - 流式输出中途的传输层断开和终止前的流截断现在都携带 `TRANSPORT`，因此组合出的 `llm-retry` 策略会默认重试它们，而不是让该轮次失败。
 - 通知文本不变（`terminated` / `Anthropic stream ended before message_stop`）：cause 细节在适配器看到之前就已丢失，因此 `errorChain` 没有更多内容可渲染。只有被路由的 `code` 得到了改善。
-- 分类仍然依赖字符串匹配且依赖提供方的措辞：未来某个 pi-ai 版本若改写这些错误的措辞，就会静默回退到 `PI_AI_ERROR`，直到模式被更新。`XXX` 注记指向那个持久的修复方式（基于转发的 `code`/`cause` 路由）。
+- 分类仍然依赖字符串匹配且依赖提供方的措辞：网关会原样转发 `finish_reason: network_error`，而未来某个 pi-ai 版本若改写这些错误的措辞，就会静默回退到 `PI_AI_ERROR`，直到模式被更新。`XXX` 注记指向那个持久的修复方式（基于转发的 `code`/`cause` 路由）。
