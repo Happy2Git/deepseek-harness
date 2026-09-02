@@ -965,14 +965,23 @@ function observeLive(session: Session): ObservedSession {
 }
 
 function observeSession(header: SessionHeader, events: readonly SessionEvent[]): ObservedSession {
+  // The projection and the fingerprint both read the event log synchronously
+  // and never retain it, so the log needs no defensive copy.
   const detachedHeader = structuredClone(header)
-  const detachedEvents = events.map(event => structuredClone(event))
+  const documents = buildSessionEventSearchDocuments(detachedHeader.id, events)
+  // Only live sessions are change-detected by fingerprint; persisted sessions
+  // use their persistence revision. Hashing the whole log is the second-largest
+  // cold-index cost, so compute it on first read and cache it.
+  let fingerprint: string | undefined
   return {
     header: detachedHeader,
-    documents: buildSessionEventSearchDocuments(detachedHeader.id, detachedEvents),
-    fingerprint: createHash('sha256')
-      .update(JSON.stringify({ header: detachedHeader, events: detachedEvents }))
-      .digest('base64url'),
+    documents,
+    get fingerprint(): string {
+      fingerprint ??= createHash('sha256')
+        .update(JSON.stringify({ header: detachedHeader, events }))
+        .digest('base64url')
+      return fingerprint
+    },
   }
 }
 

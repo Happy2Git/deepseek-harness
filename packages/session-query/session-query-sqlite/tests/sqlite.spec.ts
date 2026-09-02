@@ -334,6 +334,29 @@ describe('SQLite session search', () => {
       .resolves.toMatchObject({ items: [{ header: { ...session.header, seedLength: 1 }, live: true, persisted: false }] })
   })
 
+  it('reindexes a live session after it appends events', async () => {
+    // Live sessions are change-detected by fingerprint over their event log.
+    // The first search indexes the session and evaluates that fingerprint; an
+    // append must produce a different one so the next search sees the new text.
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('appending'))
+    session.append(
+      'user/message',
+      createUserMessage({ content: [{ type: 'text', text: 'first needle' }], source: { kind: 'user' } }),
+      { surfaceOp: 'append' },
+    )
+    await expect(ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'needle' }))
+      .resolves.toMatchObject({ items: [{ seq: 0 }] })
+
+    session.append(
+      'user/message',
+      createUserMessage({ content: [{ type: 'text', text: 'second needle' }], source: { kind: 'user' } }),
+      { surfaceOp: 'append' },
+    )
+    await expect(ctx.sessionQuery.searchEvents({ sessionId: session.id, query: 'needle' }))
+      .resolves.toMatchObject({ items: [{ seq: 0 }, { seq: 1 }] })
+  })
+
   it('excludes assistant reasoning while indexing visible answer text', async () => {
     const ctx = await liveContext()
     const session = ctx.sessions.create(SessionId('reasoning'))
