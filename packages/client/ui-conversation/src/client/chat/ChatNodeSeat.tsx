@@ -9,6 +9,8 @@ interface ChatNodeSeatProps extends ChatNodeOwnerProps {
   readonly useSession: ChatViewSlotProps['useSession']
   readonly renderSlot: ChatViewSlotProps['renderSlot']
   readonly t: ChatViewSlotProps['t']
+  /** True briefly after a locate reveals this row, for the flash treatment. */
+  readonly flash?: boolean
 }
 
 type RoutedChatNodeOwner = {
@@ -18,7 +20,7 @@ type RoutedChatNodeOwner = {
 /** Subscribe and dispatch one stable Context key without observing sibling Nodes. */
 export const ChatNodeSeat = memo(function ChatNodeSeat({
   nodeKey, selectedCallId, cwd, openFile, inspectCall, forkAt,
-  loadImage, fileMentions, useSession, renderSlot, t,
+  loadImage, fileMentions, useSession, renderSlot, t, flash,
 }: ChatNodeSeatProps) {
   const node = useSession(snapshot => snapshot.chat.nodes.get(nodeKey))
   const routedNode = node as ChatNode | undefined
@@ -40,7 +42,7 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
   const routedOwner = { ...owner, node: routedNode } as RoutedChatNodeOwner
   return (
     <div
-      className={css.flowItem}
+      className={flash === true ? `${css.flowItem} ${css.flowItemFlash}` : css.flowItem}
       data-chat-anchor-key={routedNode.key}
       data-chat-flow-key={routedNode.key}
       data-chat-flow-kind={routedNode.kind}

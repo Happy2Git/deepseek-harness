@@ -166,18 +166,23 @@ describe('sessions domain schemas', () => {
     expect(() => sessionSearchRequestSchema.parse({ query: 'bad\0query' })).toThrow(/NUL/)
     expect(() => sessionSearchRequestSchema.parse({ query: 'x'.repeat(501) })).toThrow()
     expect(sessionSearchValueSchema.parse({
-      items: [{ sessionId: 's1', snippet: 'matching text' }],
+      items: [{ sessionId: 's1', snippet: 'matching text', seq: 7 }],
       hasMore: true,
     })).toEqual({
-      items: [{ sessionId: 's1', snippet: 'matching text' }],
+      items: [{ sessionId: 's1', snippet: 'matching text', seq: 7 }],
       hasMore: true,
     })
+    // A result without its reveal coordinate is a contract violation.
+    expect(() => sessionSearchValueSchema.parse({
+      items: [{ sessionId: 's1', snippet: 'missing seq' }],
+      hasMore: false,
+    })).toThrow()
     expect(sessionSearchValueSchema.parse({
-      items: [{ sessionId: 's1', snippet: '😀'.repeat(240) }],
+      items: [{ sessionId: 's1', snippet: '😀'.repeat(240), seq: 0 }],
       hasMore: false,
     }).items[0]?.snippet).toBe('😀'.repeat(240))
     expect(() => sessionSearchValueSchema.parse({
-      items: [{ sessionId: 's1', snippet: '😀'.repeat(241) }],
+      items: [{ sessionId: 's1', snippet: '😀'.repeat(241), seq: 0 }],
       hasMore: false,
     })).toThrow(/240 Unicode code points/)
     expect(() => sessionSearchValueSchema.parse({

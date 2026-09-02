@@ -267,7 +267,7 @@ describe('search', () => {
   it('returns bounded Host results and forwards the caller signal', async () => {
     const api = new FakeApiClient()
     api.onSearch = () => Promise.resolve(ok({
-      items: [{ sessionId: S1, snippet: 'matching excerpt' }],
+      items: [{ sessionId: S1, snippet: 'matching excerpt', seq: 5 }],
       hasMore: true,
     }))
     const manager = new SessionManager(api, fakeRemote())
@@ -276,7 +276,7 @@ describe('search', () => {
     await expect(manager.search('exact phrase', signal)).resolves.toEqual({
       ok: true,
       value: {
-        items: [{ sessionId: S1, snippet: 'matching excerpt' }],
+        items: [{ sessionId: S1, snippet: 'matching excerpt', seq: 5 }],
         hasMore: true,
       },
     })

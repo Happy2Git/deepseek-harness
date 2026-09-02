@@ -23,6 +23,23 @@ import css from './ChatView.module.css'
 
 const FOLLOW_THRESHOLD = 24
 
+/** How long a revealed row keeps its flash treatment, ms (matches the CSS animation). */
+const FLASH_MS = 3000
+
+/** How long the matched words stay highlighted inside the revealed row, ms. */
+const QUERY_HIGHLIGHT_MS = 5000
+
+/**
+ * Cap on one highlighted span, in code points. A long search phrase (a whole
+ * sentence) would otherwise wash the row in one big block with no pinpoint;
+ * capping keeps the marker compact — the row flash already gives the row-level
+ * context, the word mark just points at the location.
+ */
+const MAX_HIGHLIGHT_CHARS = 10
+
+/** The CSS Custom Highlight name for located query matches. */
+const QUERY_HIGHLIGHT_NAME = 'dsh-locate-query'
+
 /** Active column host when present; otherwise the view-local scroller. */
 function scrollerOf(from: HTMLElement): HTMLElement {
   return (from.closest('[data-conversation-scroll]')) ?? from
@@ -46,6 +63,82 @@ function anchorElement(list: HTMLElement, key: string): HTMLElement | null {
 /** Row position in scrollport coordinates (viewport-independent). */
 function flowTop(row: HTMLElement, scrollport: HTMLElement): number {
   return row.getBoundingClientRect().top - scrollport.getBoundingClientRect().top
+}
+
+/**
+ * Highlight the query's occurrences inside one revealed row for a bounded
+ * window, via the CSS Custom Highlight API — text ranges styled with
+ * `::highlight(dsh-locate-query)` without touching React's DOM (a DOM mutation
+ * would be wiped or fight React reconciliation on the next row render). Falls
+ * back to nothing when the API is unavailable (older engines).
+ * @param row - the revealed chat row.
+ * @param query - the search text that produced the hit.
+ * @param durationMs - how long the highlight stays before removal.
+ */
+function highlightQueryInRow(row: HTMLElement, query: string, durationMs: number): void {
+  const q = query.trim().toLowerCase()
+  if (q === '') return
+  const highlightApi = (globalThis as { CSS?: { highlights?: { set(name: string, h: unknown): void; delete(name: string): void } } }).CSS
+  if (highlightApi?.highlights === undefined) return
+  const ranges: Range[] = []
+  const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT)
+  let node: Node | null
+  while ((node = walker.nextNode()) !== null) {
+    const text = node.textContent ?? ''
+    const lower = text.toLowerCase()
+    const span = Math.min(q.length, MAX_HIGHLIGHT_CHARS)
+    let from = 0
+    while (true) {
+      const at = lower.indexOf(q, from)
+      if (at === -1) break
+      const range = document.createRange()
+      range.setStart(node, at)
+      range.setEnd(node, at + span)
+      ranges.push(range)
+      from = at + q.length
+    }
+  }
+  if (ranges.length === 0) return
+  const Highlight = (globalThis as { Highlight?: new () => { add(...r: Range[]): void } }).Highlight
+  if (Highlight === undefined) return
+  const highlight = new Highlight()
+  highlight.add(...ranges)
+  highlightApi.highlights.set(QUERY_HIGHLIGHT_NAME, highlight)
+  // The previous timer (if any) is replaced rather than stacked; the new
+  // highlight owns the removal window.
+  window.setTimeout(() => {
+    highlightApi.highlights?.delete(QUERY_HIGHLIGHT_NAME)
+  }, durationMs)
+}
+
+/**
+ * The visible row that best represents one event seq. A node's anchorSeq is
+ * the flow position of a whole business unit (an assistant node covers its
+ * whole step, and synthetic nodes sit on fractional offsets), so an exact
+ * match is the exception rather than the rule: the row that *contains* the
+ * seq is the last one at or before it. An exact hit still wins outright.
+ * @param nodes - the chat node store.
+ * @param order - visible node keys in flow order.
+ * @param seq - the event seq to reveal.
+ * @returns the node key to scroll to, or null when the seq is not covered.
+ */
+function keyForSeq(
+  nodes: { get(key: string): { anchorSeq: number } | undefined },
+  order: readonly string[],
+  seq: number,
+): string | null {
+  let best: string | null = null
+  let bestSeq = Number.NEGATIVE_INFINITY
+  for (const key of order) {
+    const anchorSeq = nodes.get(key)?.anchorSeq
+    if (anchorSeq === undefined) continue
+    if (anchorSeq === seq) return key
+    if (anchorSeq <= seq && anchorSeq > bestSeq) {
+      best = key
+      bestSeq = anchorSeq
+    }
+  }
+  return best
 }
 
 /** Select a visible stable node/call identity, falling back only when layout
@@ -145,7 +238,7 @@ function TurnStatus({ startTime, t }: {
  */
 export function ChatView({
   useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt,
-  fileMentions, t,
+  clearLocate, replayPendingLocate, setLocateFromReplay, subscribePendingLocate, fileMentions, t,
 }: ChatViewSlotProps) {
   const order = useSession(s => s.chat.order)
   const nodeStore = useSession(s => s.chat.nodes)
@@ -159,6 +252,9 @@ export function ChatView({
   const hasMore = useSession(s => s.hasMore)
   const loadingOlder = useSession(s => s.loadingOlder)
   const selectedCallId = useStore(s => s.selection?.callId)
+  const locate = useStore(s => s.locate ?? null)
+  /** Node key flagged by the latest reveal; cleared once its flash finishes. */
+  const [flashKey, setFlashKey] = useState<string | null>(null)
 
   const pendingSteering = useMemo(
     () => inbox.filter(item => item.placement === 'steering'),
@@ -313,6 +409,70 @@ export function ChatView({
     }
   }, [])
 
+  // Locate handoff: reveal a requested event seq. The request stays pending
+  // while its row is outside the loaded window — this effect re-runs on
+  // `order`, so each history page that lands retries the resolution, and the
+  // older-page pull is issued here rather than by the requester. Consuming
+  // the request clears it, so the same seq can be requested again later.
+  //
+  // On mount (and while the handoff store field is empty) any locate that
+  // arrived while this view was unmounted or is arriving mid-gesture — the
+  // open-then-reveal across a session switch — is pulled from the service and
+  // stored. The service notifies subscribers when a request lands, so the
+  // freshly-mounted view wakes without polling.
+  useEffect(() => {
+    if (locate !== null && locate !== undefined) return
+    const waiting = replayPendingLocate()
+    if (waiting !== undefined) {
+      setLocateFromReplay(waiting)
+      return
+    }
+    return subscribePendingLocate(() => {
+      const next = replayPendingLocate()
+      if (next !== undefined) setLocateFromReplay(next)
+    })
+  }, [locate, replayPendingLocate, setLocateFromReplay, subscribePendingLocate])
+
+  useEffect(() => {
+    if (locate === null || locate === undefined) return
+    const local = listRef.current
+    if (local === null) return
+    const targetKey = keyForSeq(nodeStore, order, locate.seq)
+    // Not loaded yet: pull older history and stay pending. The transcript has
+    // not rendered its first page (firstSeq === null) while a session switch
+    // settles, so hasMore is not meaningful there — wait for the window to
+    // materialize rather than treating it as "seq does not exist". Only when
+    // the window is loaded and the seq predates the earliest row is the request
+    // dropped instead of looping forever.
+    if (targetKey === null || (firstSeq !== null && locate.seq < firstSeq)) {
+      if (firstSeq === null) return
+      if (hasMore && !loadingOlder) loadOlder()
+      else if (!hasMore) clearLocate()
+      return
+    }
+    const row = anchorElement(local, targetKey)
+    if (row === null) return
+    const el = scrollerOf(local)
+    // Take scroll ownership away from bottom-follow before moving, or the
+    // layout effect re-pins us to the floor on the next render.
+    atBottomRef.current = false
+    setAtBottom(false)
+    anchorRef.current = null
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    observedTopRef.current = el.scrollTop
+    setFlashKey(targetKey)
+    if (locate.query !== undefined) highlightQueryInRow(row, locate.query, QUERY_HIGHLIGHT_MS)
+    clearLocate()
+  }, [locate, order, nodeStore, firstSeq, hasMore, loadingOlder, loadOlder, clearLocate])
+
+  // Clear the reveal flag after its animation so a later locate on the same
+  // row flashes again (a re-set of the identical key would otherwise be inert).
+  useEffect(() => {
+    if (flashKey === null) return
+    const timer = setTimeout(() => { setFlashKey(null) }, FLASH_MS)
+    return () => { clearTimeout(timer) }
+  }, [flashKey])
+
   // The ref starts null and is assigned every render, so the placeholder
   // initializer a function initial value would need never exists.
   const followRef = useRef<(() => void) | null>(null)
@@ -383,6 +543,7 @@ export function ChatView({
             <ChatNodeSeat
               key={nodeKey}
               nodeKey={nodeKey}
+              flash={nodeKey === flashKey}
               useSession={useSession}
               selectedCallId={selectedCallId}
               cwd={cwd}

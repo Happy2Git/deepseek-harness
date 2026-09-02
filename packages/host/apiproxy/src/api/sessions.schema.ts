@@ -90,6 +90,7 @@ export const sessionSearchItemSchema = z.object({
     ) === snippet,
     { message: `search snippet must contain at most ${SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS} Unicode code points` },
   ),
+  seq: z.number().int().nonnegative(),
 }) satisfies z.ZodType<Wire<SessionSearchItem>>
 
 /** session.search response value. */

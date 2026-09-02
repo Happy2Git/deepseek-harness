@@ -20,7 +20,7 @@ import type {
 import type { createChatStore } from '../stores.ts'
 import type { ComposerSubmitGesture, InputSubmitMode } from './composer-submission.ts'
 import type { ChatNode, ChatNodeKind } from './chat-nodes.ts'
-import type { CallId, SelectionTarget, ViewTab } from './views.ts'
+import type { CallId, LocateRequest, SelectionTarget, ViewTab } from './views.ts'
 
 /** Browser-owned image that has not crossed the durable host boundary. */
 export interface ComposerAttachment {
@@ -698,6 +698,18 @@ export interface ChatViewInjected {
   }
   /** Fork through the completed turn ending at the eligible message `seq`, then open the child. */
   forkAt: (seq: number) => void
+  /** Consume a pending locate request after it has been revealed (or dropped). */
+  clearLocate: () => void
+  /**
+   * Replay any locate request that arrived while this view was not mounted
+   * (the open-then-reveal gesture). Returns the request, or undefined when
+   * none is pending; the caller stores it into its own store instance.
+   */
+  replayPendingLocate: () => LocateRequest | undefined
+  /** Write a locate request into this view's own store instance. */
+  setLocateFromReplay: (request: LocateRequest) => void
+  /** Wake when a locate request lands while this view is waiting for one. */
+  subscribePendingLocate: (listener: () => void) => () => void
   /**
    * Prose file-mention vocabulary for one closing message, from the optional
    * {@link ChatFileMentions} service (resolved lazily per call, so composing

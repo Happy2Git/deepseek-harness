@@ -82,6 +82,8 @@ describe('workspace browser rows', () => {
       runningSubagentCount: 0,
       completed: false,
       snippet: 'matching message excerpt',
+      seq: 77,
+      query: 'matching',
     }
     render(<SearchResultItem result={result} currentId={result.id} onOpen={onOpen} t={t} />)
     const row = screen.getByRole('treeitem')
@@ -92,7 +94,9 @@ describe('workspace browser rows', () => {
     expect(screen.getByText('进行中')).toBeTruthy()
     expect(row.hasAttribute('draggable')).toBe(false)
     fireEvent.click(row)
-    expect(onOpen).toHaveBeenCalledWith(result.id)
+    // The click carries the matching event seq and the query, so the reveal can
+    // highlight the words that produced the hit.
+    expect(onOpen).toHaveBeenCalledWith(result.id, 77, 'matching')
   })
 
   it.each([

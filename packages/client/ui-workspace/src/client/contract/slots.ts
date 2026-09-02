@@ -96,8 +96,13 @@ export type WorkspaceBrowserInjected = DirectoryPickingInjected & {
    * Workspace, then the recent Workspace, or clear into the New Session view.
    */
   startSession: (workspaceId?: WorkspaceId) => void
-  /** Open a real Session. */
-  open: (sessionId: SessionId) => void
+  /**
+   * Open a real Session; when the caller carries a matching event `seq`,
+   * reveal that event in the transcript after the session opens. `query` is
+   * the search text that produced the hit, so the reveal can highlight the
+   * matching words inside the row.
+   */
+  open: (sessionId: SessionId, seq?: number, query?: string) => void
   /**
    * Search current visible conversation messages. The Host fixes the result
    * bound; `hasMore` means the query needs narrowing.

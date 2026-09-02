@@ -67,6 +67,10 @@ export interface SearchResultNode {
   /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
   completed: boolean
   snippet?: string
+  /** Event seq of the content match, when there is one — the coordinate a reveal needs. */
+  seq?: number
+  /** The query that produced this result — the words a reveal should highlight. */
+  query?: string
 }
 
 /** Bounded merged search projection plus the refine-query hint bit. */
@@ -385,7 +389,7 @@ export function deriveSearchResults(
           ? {}
           : { pendingInteraction: summary.pendingInteraction }),
         completed: summary.completed === true,
-        ...match === undefined ? {} : { snippet: match.snippet },
+        ...match === undefined ? {} : { snippet: match.snippet, seq: match.seq, query: q },
       }
     }),
     hasMore: content.hasMore || ordered.length > limit,

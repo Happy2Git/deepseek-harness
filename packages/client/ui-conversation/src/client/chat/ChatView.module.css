@@ -57,6 +57,59 @@
   display: none;
 }
 
+/* Locate reveal: the row a search jumped to fades a brand-tinted wash out
+   over its own box, so the eye lands on it without a persistent ring (the
+   flow has no selected-row chrome). The class is dropped once the animation
+   ends, so a repeat locate on the same row flashes again. The bright phase
+   holds past the typical smooth-scroll travel, then fades — otherwise a long
+   jump fades the wash before the row arrives in view. */
+.flowItemFlash {
+  border-radius: 8px;
+  animation: dsh-chat-locate-flash 3s ease-out 1;
+}
+
+@keyframes dsh-chat-locate-flash {
+  0%,
+  60% {
+    background-color: var(--dsw-alias-state-business-primary);
+    box-shadow: 0 0 0 6px var(--dsw-alias-state-business-primary);
+  }
+
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+/* Located query words: styled via the CSS Custom Highlight API, so the marks
+   ride text ranges instead of mutating React's DOM. The bright phase holds to
+   80% (4s) — deliberately longer than the 3s row flash, so the keyword stays
+   lit after the row wash has faded; the removal in code disposes the range. */
+::highlight(dsh-locate-query) {
+  background-color: var(--dsw-alias-state-warning-bg, rgba(255, 214, 0, 0.35));
+  color: inherit;
+  animation: dsh-locate-query-fade 5s ease-out 1;
+}
+
+@keyframes dsh-locate-query-fade {
+  0%,
+  80% {
+    background-color: var(--dsw-alias-state-warning-bg, rgba(255, 214, 0, 0.35));
+  }
+
+  100% {
+    background-color: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flowItemFlash {
+    animation: none;
+    background-color: transparent;
+    box-shadow: 0 0 0 2px var(--dsw-alias-state-business-primary);
+  }
+}
+
 .callRow {
   border-radius: 6px;
 }

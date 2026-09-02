@@ -19,6 +19,7 @@ import type { QueueAction, QueueItemId } from './contract/queue.ts'
 import type { ComposerBlocks } from './input/blocks.ts'
 import type { DraftAttachmentId, SessionInputResolver } from './input/contract.ts'
 import type { InputSubmitMode } from './contract/composer-submission.ts'
+import type { LocateRequest } from './contract/views.ts'
 
 /**
  * The outward conversation face (`ctx.conversation`): the scope-addressed
@@ -56,6 +57,32 @@ export interface IConversation {
    * @returns completion of the page pull.
    */
   loadOlder(): Promise<void>
+  /**
+   * Reveal one event inside the scoped session's chat view: scroll its row
+   * into view and flag it. The request is one-shot and survives history
+   * paging — the chat view holds it pending until the seq is inside the
+   * loaded window, so a seq far above the tail resolves as pages arrive.
+   *
+   * A no-op when the target session has no mounted chat view (nothing is
+   * rendering the request), which keeps a stale search result harmless.
+   * @param seq - the event seq to reveal.
+   * @param query - the search text that produced the hit, when any; the view
+   * highlights the matching words inside the revealed row.
+   */
+  locate(seq: number, query?: string): void
+  /**
+   * Take (and remove) a pending locate request for one session.
+   * @param sessionId - the chat view's session.
+   * @returns the pending request, or undefined when none is held.
+   */
+  takePendingLocate(sessionId: SessionId): LocateRequest | undefined
+  /**
+   * Subscribe to pending-locate arrivals. A chat view waiting for a reveal
+   * (mounted before the request landed) registers here instead of polling.
+   * @param listener - invoked after a request is stored.
+   * @returns the unsubscribe disposer.
+   */
+  subscribePendingLocate(listener: () => void): () => void
 }
 
 /** Create one browser-only draft descriptor; only its id enters input state. */
@@ -94,6 +121,12 @@ export class ConversationController extends Service implements IConversation {
   /** The per-session composer-block registry. */
   readonly blocks: ComposerBlocks
   private readonly draftAttachments = new Map<DraftAttachmentId, ComposerAttachment>()
+  /** Per-session locate writers, published by each mounted chat-view seat. */
+  private readonly locateWriters = new Map<SessionId, (request: LocateRequest) => void>()
+  /** Locate requests that arrived before their session's chat view mounted. */
+  private readonly pendingLocates = new Map<SessionId, LocateRequest>()
+  /** Views waiting for a pending locate to land (no polling). */
+  private readonly pendingLocateListeners = new Set<() => void>()
   private readonly imageUrls = new Map<string, ImageUrlEntry>()
   private readonly imageGenerations = new Map<SessionId, number>()
   private readonly createdImageUrls = new Set<string>()
@@ -285,6 +318,74 @@ export class ConversationController extends Service implements IConversation {
   /** Pull one older history page for the scoped Session. */
   async loadOlder(): Promise<void> {
     await this.scopedSession('loadOlder').loadOlder()
+  }
+
+  /**
+   * Publish one session's locate writer. The chat-view store seat owns the
+   * bound action, so it registers here at inject time; a later inject for the
+   * same session replaces the entry rather than stacking.
+   *
+   * Opening a session and revealing an event in it is one gesture, but the
+   * target's view mounts a frame later — so a request that arrived before the
+   * writer existed is replayed here instead of being lost.
+   * @param sessionId - the chat view's session.
+   * @param write - bound setter that stores the pending locate request.
+   */
+  bindLocate(sessionId: SessionId, write: (request: LocateRequest) => void): void {
+    this.locateWriters.set(sessionId, write)
+    const waiting = this.pendingLocates.get(sessionId)
+    if (waiting === undefined) return
+    this.pendingLocates.delete(sessionId)
+    // Defer the replay out of the render phase: the store write must land
+    // after the freshly-mounted chat view has subscribed, or the one-shot
+    // locate is read from a snapshot that predates it and never re-fires.
+    queueMicrotask(() => { write(waiting) })
+  }
+
+  /**
+   * Reveal one event in the scoped session's chat view.
+   *
+   * The request is held in a per-session pending slot rather than written
+   * through a writer directly: a session switch remounts the target view and
+   * replaces its store instance, so a direct write could land on a dead
+   * instance. A mounted view consumes the slot either on its next bindLocate
+   * (the inject replay) or via takePendingLocate on mount; whichever runs
+   * first stores the request into the live instance.
+   * @param seq - the event seq to reveal.
+   * @param query - the search text that produced the hit, when any.
+   */
+  locate(seq: number, query?: string): void {
+    const id = this.scopeId('locate')
+    this.pendingLocates.set(id, { seq, ...(query === undefined ? {} : { query }) })
+    for (const listener of this.pendingLocateListeners) {
+      try { listener() } catch { /* a listener must not break the request */ }
+    }
+  }
+
+  /**
+   * Subscribe to pending-locate arrivals. A chat view waiting for a reveal
+   * (mounted before the request landed) registers here instead of polling.
+   * @param listener - invoked after a request is stored.
+   * @returns the unsubscribe disposer.
+   */
+  subscribePendingLocate(listener: () => void): () => void {
+    this.pendingLocateListeners.add(listener)
+    return () => { this.pendingLocateListeners.delete(listener) }
+  }
+
+  /**
+   * Take (and remove) a pending locate request for one session. The chat-view
+   * seat knows its session id directly, so the request is addressed explicitly
+   * rather than through the root-scope tag (the seat's ctx is the plugin root,
+   * not a session scope).
+   * @param sessionId - the chat view's session.
+   * @returns the pending seq, or undefined when none is held.
+   */
+  takePendingLocate(sessionId: SessionId): LocateRequest | undefined {
+    const waiting = this.pendingLocates.get(sessionId)
+    if (waiting === undefined) return undefined
+    this.pendingLocates.delete(sessionId)
+    return waiting
   }
 
   /** Resolve the caller scope's session face or throw on root contexts. */

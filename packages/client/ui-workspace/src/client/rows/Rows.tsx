@@ -303,7 +303,7 @@ function SessionHoverContent({ node, now, t }: { node: SessionNode; now: number;
 export function SearchResultItem({ result, currentId, onOpen, t }: {
   result: SearchResultNode
   currentId: string | undefined
-  onOpen: (id: SearchResultNode['id']) => void
+  onOpen: (id: SearchResultNode['id'], seq?: number, query?: string) => void
   t: RowTranslate
 }) {
   const selected = result.id === currentId
@@ -315,7 +315,7 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
       className={clsx(css.searchResultRow, selected && css.selected)}
       role="treeitem"
       aria-selected={selected}
-      onClick={() => { onOpen(result.id) }}
+      onClick={() => { onOpen(result.id, result.seq, result.query) }}
     >
       <span className={css.searchResultHeading}>
         <span className={css.slot}>

@@ -124,7 +124,7 @@ describe('session.search', () => {
     expect(response.result).toEqual({
       ok: true,
       value: {
-        items: [{ sessionId: 'cold', snippet: 'the matching answer' }],
+        items: [{ sessionId: 'cold', snippet: 'the matching answer', seq: 4 }],
         hasMore: false,
       },
     })
@@ -181,8 +181,9 @@ describe('session.search', () => {
         items: [
           withBestMatch(0, { sessionId: sid('hidden') }),
           withBestMatch(1, { surface: 'shadowed' }),
-          withBestMatch(2, { type: 'tool/result' }),
-          withBestMatch(3, { type: 'user/message', snippet: 'allowed snippet' }),
+          withBestMatch(2, { type: 'todo/write' }),
+          withBestMatch(3, { type: 'tool/result', snippet: 'a command dump' }),
+          withBestMatch(4, { type: 'user/message', snippet: 'allowed snippet' }),
         ],
       }),
     } as never)
@@ -195,9 +196,40 @@ describe('session.search', () => {
     expect(response.result).toEqual({
       ok: true,
       value: {
-        items: [{ sessionId: 'visible', snippet: 'allowed snippet' }],
+        items: [{ sessionId: 'visible', snippet: 'allowed snippet', seq: 4 }],
         hasMore: false,
       },
+    })
+  })
+
+  it('excludes tool-result hits — search covers the conversation only', async () => {
+    const ctx = await baseContext()
+    const visible = hit('visible')
+    ctx.sessions.create(visible.header.id, { meta: visible.header })
+    ctx.provide('sessionQuery', {
+      searchSessions: () => Promise.resolve({
+        items: [{
+          ...visible,
+          bestMatch: {
+            ...visible.bestMatch,
+            seq: 512,
+            type: 'tool/result',
+            snippet: 'the failing command output',
+          },
+        }],
+      }),
+    } as never)
+
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('failing command'),
+      new AbortController().signal,
+    )
+
+    // Tool calls and results (commands, dumps, diffs) make search noisy, so the
+    // surface stays on the human conversation: the hit is dropped entirely.
+    expect(response.result).toEqual({
+      ok: true,
+      value: { items: [], hasMore: false },
     })
   })
 
@@ -374,9 +406,9 @@ describe('session.search', () => {
       ok: true,
       value: {
         items: [
-          { sessionId: 'fresh-first', snippet: 'match 2' },
-          { sessionId: 'shared', snippet: 'match 1' },
-          { sessionId: 'fresh-last', snippet: 'match 3' },
+          { sessionId: 'fresh-first', snippet: 'match 2', seq: 2 },
+          { sessionId: 'shared', snippet: 'match 1', seq: 1 },
+          { sessionId: 'fresh-last', snippet: 'match 3', seq: 3 },
         ],
         hasMore: false,
       },
@@ -612,7 +644,7 @@ describe('session.search', () => {
     expect(response.result).toEqual({
       ok: true,
       value: {
-        items: [{ sessionId: 'visible', snippet: expected }],
+        items: [{ sessionId: 'visible', snippet: expected, seq: 0 }],
         hasMore: false,
       },
     })
@@ -742,7 +774,7 @@ describe('session.search', () => {
     expect(response.result).toEqual({
       ok: true,
       value: {
-        items: [{ sessionId: 'cold-32750', snippet: 'match 0' }],
+        items: [{ sessionId: 'cold-32750', snippet: 'match 0', seq: 0 }],
         hasMore: false,
       },
     })

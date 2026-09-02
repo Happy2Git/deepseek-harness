@@ -173,7 +173,7 @@ describe('unary round trip', () => {
         search: (request) => {
           seen = request
           return ok(request, {
-            items: [{ sessionId: sid('s1'), snippet: 'matching message text' }],
+            items: [{ sessionId: sid('s1'), snippet: 'matching message text', seq: 7 }],
             hasMore: true,
           })
         },
@@ -184,7 +184,7 @@ describe('unary round trip', () => {
     expect(response.result).toEqual({
       ok: true,
       value: {
-        items: [{ sessionId: 's1', snippet: 'matching message text' }],
+        items: [{ sessionId: 's1', snippet: 'matching message text', seq: 7 }],
         hasMore: true,
       },
     })
@@ -194,7 +194,7 @@ describe('unary round trip', () => {
     const api = scriptedApi({
       sessions: {
         search: request => ok(request, {
-          items: [{ sessionId: sid('s1'), snippet: '😀'.repeat(241) }],
+          items: [{ sessionId: sid('s1'), snippet: '😀'.repeat(241), seq: 7 }],
           hasMore: false,
         }),
       },

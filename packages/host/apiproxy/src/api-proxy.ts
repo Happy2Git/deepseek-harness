@@ -123,6 +123,18 @@ export const DEFAULT_COLD_BLANK_PROBE_MAX_BYTES = 1024
 /** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 
+/**
+ * Event types session.search may return. The human conversation only: user
+ * messages and model outputs, matching {@link MESSAGE_TYPES}. Tool calls and
+ * results are deliberately excluded — they are rendered rows, but their text
+ * (commands, dumps, diffs) makes search noisy, so the search surface stays on
+ * the conversation itself.
+ */
+const SEARCHABLE_TYPES = new Set<keyof SessionEventMap>([
+  'user/message',
+  'assistant/message',
+])
+
 /** Decode the browser payload while rejecting non-canonical base64 forms. */
 function decodeBase64(data: string): Uint8Array {
   const decoded = Buffer.from(data, 'base64')
@@ -2014,7 +2026,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               page = await sessionQuery.searchSessions({
                 query: request.payload.query,
                 eventFilters: [
-                  { kind: 'type', values: ['user/message', 'assistant/message'] },
+                  { kind: 'type', values: [...SEARCHABLE_TYPES] },
+                  // Load-bearing: the human transcript renders append-origin
+                  // events only, so a shadowed or log-only hit would be a
+                  // result the client can show but never scroll to.
                   { kind: 'surface', values: ['current'] },
                 ],
                 limit: requestedPageLimit,
@@ -2062,7 +2077,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 !visibleIds.has(hit.header.id)
                 || hit.bestMatch.sessionId !== hit.header.id
                 || hit.bestMatch.surface !== 'current'
-                || !MESSAGE_TYPES.has(hit.bestMatch.type)
+                || !SEARCHABLE_TYPES.has(hit.bestMatch.type)
                 || acceptedIds.has(hit.header.id)
               ) continue
               const snippet = truncateUnicodeCodePoints(
@@ -2073,6 +2088,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               authorized.push({
                 sessionId: hit.header.id,
                 snippet,
+                seq: hit.bestMatch.seq,
               })
             }
             const nextCursor = page.nextCursor

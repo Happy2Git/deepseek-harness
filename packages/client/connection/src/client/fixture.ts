@@ -1231,7 +1231,11 @@ function searchBlockText(block: ContentBlock): string[] {
   }
 }
 
-/** One current-surface user/assistant document, if searchable. */
+/**
+ * One current-surface searchable document, if any. Mirrors the Host's
+ * SEARCHABLE_TYPES: the human conversation only — user messages and model
+ * outputs; tool calls and results stay out of search.
+ */
 function searchEventText(event: SessionEvent): string {
   const content = event.type === 'user/message'
     ? event.data.content
@@ -2214,6 +2218,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           items: matches.slice(0, SESSION_SEARCH_RESULT_LIMIT).map(match => ({
             sessionId: match.sessionId,
             snippet: searchSnippet(match.text, match.matchStart, match.matchEnd),
+            seq: match.seq,
           })),
           hasMore: matches.length > SESSION_SEARCH_RESULT_LIMIT,
         })

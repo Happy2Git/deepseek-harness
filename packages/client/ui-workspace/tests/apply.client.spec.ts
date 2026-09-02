@@ -27,7 +27,7 @@ async function bench() {
   const clear = vi.fn()
   const search = vi.fn(async () => ({
     ok: true as const,
-    value: { items: [{ sessionId: 'session' as never, snippet: 'match' }], hasMore: false },
+    value: { items: [{ sessionId: 'session' as never, snippet: 'match', seq: 12 }], hasMore: false },
   }))
   const renameSession = vi.fn(async (title: string) => ({ ok: true, value: { title, seq: 1 } }))
   const binding = vi.fn(() => ({ session: { rename: renameSession } }))
@@ -35,12 +35,22 @@ async function bench() {
   ctx.provide('workspaces', {
     create, startSession, rename, insertSessionBefore,
   } as never)
-  ctx.provide('sessions', { open, clear, search, searchResultLimit: 20, binding, fork } as never)
+  // Scope-addressed conversation service: the reveal path resolves it lazily
+  // through the target session's scope, exactly as production does.
+  const located: { sessionId: string; seq: number; query?: string }[] = []
+  const scope = vi.fn((sessionId: string) => ({
+    get: (name: string) => (name === 'conversation'
+      ? { locate: (seq: number, query?: string) => { located.push({ sessionId, seq, ...(query === undefined ? {} : { query }) }) } }
+      : undefined),
+  }))
+  ctx.provide('sessions', {
+    open, clear, search, searchResultLimit: 20, binding, fork, scope,
+  } as never)
   const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
   return {
     ctx, slots: ctx.get('slots') as SlotRegistry, locale, create, startSession, rename,
-    insertSessionBefore, open, clear, search, renameSession, binding, fork,
+    insertSessionBefore, open, clear, search, renameSession, binding, fork, scope, located,
   }
 }
 
@@ -88,9 +98,11 @@ describe('ui-workspace apply', () => {
     expect(b.startSession).toHaveBeenLastCalledWith(undefined)
     browser.open('session' as never)
     expect(b.open).toHaveBeenCalledWith('session')
+    // No seq means a title-only match: open the session, reveal nothing.
+    expect(b.located).toEqual([])
     const signal = new AbortController().signal
     await expect(browser.searchSessions('match', signal)).resolves.toEqual({
-      items: [{ sessionId: 'session', snippet: 'match' }],
+      items: [{ sessionId: 'session', snippet: 'match', seq: 12 }],
       hasMore: false,
     })
     expect(b.search).toHaveBeenCalledWith('match', signal)
@@ -113,6 +125,22 @@ describe('ui-workspace apply', () => {
     const picker = (b.slots.entries('conversation.hero.workspace')[0]!.inject as () => WorkspacePickerInjected)()
     await picker.createWorkspace({ path: '/tmp/project' })
     expect(b.create).toHaveBeenCalledWith({ path: '/tmp/project' })
+  })
+
+  it('reveals the matching event seq through the target session scope after opening', async () => {
+    const b = await bench()
+    declare(b.slots, 'sidebar.workspaces')
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+
+    const browser = (b.slots.entries('sidebar.workspaces')[0]!.inject as () => WorkspaceBrowserInjected)()
+    // A content hit carries its event seq and the query; the wiring must both
+    // open the session and reveal that seq (with the query) in the target scope.
+    browser.open('session' as never, 512, '搜索词')
+    expect(b.open).toHaveBeenCalledWith('session')
+    expect(b.located).toEqual([{ sessionId: 'session', seq: 512, query: '搜索词' }])
+    // The reveal is scope-addressed: open() takes the session id, locate()
+    // resolves that session's conversation service.
+    expect(b.scope).toHaveBeenCalledWith('session')
   })
 
   it('declares the two directory-flow holes and reports their occupancy per surface', async () => {

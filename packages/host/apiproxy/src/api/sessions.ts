@@ -226,6 +226,13 @@ export interface SessionSearchItem {
   sessionId: SessionId
   /** Plain-text excerpt around the strongest matching visible message. */
   snippet: string
+  /**
+   * Monotonic event seq of the matched event within its session — the
+   * coordinate a client needs to reveal the hit in place instead of merely
+   * opening the session. Always an event the human transcript renders: the
+   * search filters keep hits on the current surface.
+   */
+  seq: number
 }
 
 /** Session-domain unary methods (the map keys session.* of RpcMethodMap). */

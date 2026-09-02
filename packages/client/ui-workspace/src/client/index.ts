@@ -71,7 +71,16 @@ export function apply(ctx: ClientContext): void {
     // Explicit group actions keep their target; unscoped New Session inherits
     // the current Session Workspace before the recent-Workspace fallback.
     startSession: (workspaceId) => { ctx.workspaces.startSession(workspaceId) },
-    open: (sessionId) => { ctx.sessions.open(sessionId) },
+    open: (sessionId, seq, query) => {
+      // Open first, then reveal the matching event. When the conversation
+      // service is absent (a host that predates locate) the call degrades to
+      // plain session opening, which is the old behaviour. The query rides the
+      // reveal so the matched words highlight inside the row.
+      ctx.sessions.open(sessionId)
+      if (seq !== undefined) {
+        ctx.sessions.scope(sessionId)?.get('conversation')?.locate(seq, query)
+      }
+    },
     searchSessions,
     searchResultLimit: ctx.sessions.searchResultLimit,
     renameSession: async (sessionId, title) => {

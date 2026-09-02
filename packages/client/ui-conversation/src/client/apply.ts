@@ -386,6 +386,11 @@ export function apply(ctx: Context): void {
     inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ChatViewInjected => {
       const conversation = concreteConversation(ctx)
       const scoped = scopedConversation(sessions, sessionId)
+      // The locate channel needs this session's bound writer, which only the
+      // store seat hands out. Publishing it here is what lets an out-of-tree
+      // caller (ctx.conversation.locate) reveal an event in a chat view it
+      // cannot import; the entry dies with the seat.
+      conversation.bindLocate(sessionId, (request) => { actions.setLocate(request) })
       return {
         openDetails: (target) => {
           actions.select(target)
@@ -421,6 +426,10 @@ export function apply(ctx: Context): void {
               // Fork or child-rename failure keeps the source view untouched.
             })
         },
+        clearLocate: () => { actions.setLocate(null) },
+        replayPendingLocate: () => conversation.takePendingLocate(sessionId),
+        setLocateFromReplay: (request) => { actions.setLocate(request) },
+        subscribePendingLocate: listener => conversation.subscribePendingLocate(listener),
       }
     },
   }, ChatView)

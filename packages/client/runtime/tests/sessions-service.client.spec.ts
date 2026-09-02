@@ -102,7 +102,7 @@ describe('search', () => {
     await feedList(b, [{ id: 's1' }])
     const before = b.svc.list.getSnapshot()
     b.api.onSearch = () => Promise.resolve(ok({
-      items: [{ sessionId: sid('s1'), snippet: 'matching excerpt' }],
+      items: [{ sessionId: sid('s1'), snippet: 'matching excerpt', seq: 5 }],
       hasMore: false,
     }))
     const signal = new AbortController().signal
@@ -110,7 +110,7 @@ describe('search', () => {
     await expect(b.svc.search('needle', signal)).resolves.toEqual({
       ok: true,
       value: {
-        items: [{ sessionId: 's1', snippet: 'matching excerpt' }],
+        items: [{ sessionId: 's1', snippet: 'matching excerpt', seq: 5 }],
         hasMore: false,
       },
     })
