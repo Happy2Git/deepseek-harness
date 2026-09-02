@@ -782,23 +782,17 @@ describe('session.search', () => {
     expect(searchSessions.mock.calls[0]?.[0]).not.toHaveProperty('sessionFilters')
   })
 
-  it('propagates cancellation through visible-session collection and stops cold-summary work', async () => {
+  it('propagates cancellation through the lightweight visible-scope and stops before the index', async () => {
     const ctx = await baseContext()
     const controller = new AbortController()
     const cold = Array.from({ length: 32 }, (_, index) => header(`cold-${index}`, `/cold-${index}`))
     const list = vi.fn((signal?: AbortSignal) => {
       expect(signal).toBe(controller.signal)
+      // Abort while the header list is in flight, like a client disconnect.
+      controller.abort()
       return Promise.resolve(cold)
     })
-    let locateCalls = 0
-    ctx.provide('sessionPersistence', {
-      list,
-      locate: () => {
-        locateCalls++
-        controller.abort()
-        return undefined
-      },
-    } as never)
+    ctx.provide('sessionPersistence', { list, locate: vi.fn() } as never)
     const searchSessions = vi.fn()
     ctx.provide('sessionQuery', { searchSessions } as never)
 
@@ -807,55 +801,61 @@ describe('session.search', () => {
       controller.signal,
     )
 
+    // The scope lists persisted headers once; cancellation surfaces cleanly.
     expect(response.result).toMatchObject({
       ok: false,
       error: { code: 'cancelled' },
     })
     expect(list).toHaveBeenCalledOnce()
-    expect(locateCalls).toBe(1)
     expect(searchSessions).not.toHaveBeenCalled()
   })
 
-  it('awaits every started cold-summary stat before returning cancellation', async () => {
+  it('performs no cold-summary stat work for search (headers only)', async () => {
+    // Search authorization needs only the visible session id set. The old path
+    // summarized every cold session (stat/disk reads per log) on each request;
+    // the lightweight scope must not touch that machinery at all.
     const ctx = await baseContext()
-    const controller = new AbortController()
     const cold = Array.from({ length: 16 }, (_, index) => header(`cold-${index}`, `/cold-${index}`))
-    const statGates = cold.map(() => Promise.withResolvers<{ mtimeMs: number }>())
     const statMock = vi.mocked(stat)
     statMock.mockClear()
-    for (const gate of statGates) {
-      statMock.mockImplementationOnce((() => gate.promise) as never)
-    }
     ctx.provide('sessionPersistence', {
       list: () => Promise.resolve(cold),
       locate: (meta: SessionHeader) => ({ kind: 'jsonl', path: `/logs/${meta.id}.jsonl` }),
     } as never)
-    const searchSessions = vi.fn()
+    const searchSessions = vi.fn(async () => ({ items: [] }))
     ctx.provide('sessionQuery', { searchSessions } as never)
 
-    let settled = false
-    const responsePromise = createApiProxy(ctx, defaults).sessions.search(
-      request('cancel-during-cold-stats'),
-      controller.signal,
-    ).finally(() => {
-      settled = true
-    })
-    await vi.waitFor(() => {
-      expect(statMock).toHaveBeenCalledTimes(16)
-    })
+    const response = await createApiProxy(ctx, defaults).sessions.search(
+      request('no-cold-stats'),
+      new AbortController().signal,
+    )
 
-    controller.abort()
-    statGates[0]!.resolve({ mtimeMs: 101 })
-    await new Promise<void>(resolve => setImmediate(resolve))
-    expect(settled).toBe(false)
+    expect(response.result.ok).toBe(true)
+    expect(searchSessions).toHaveBeenCalled()
+    // The whole optimization: zero cold-summary stat calls for search.
+    expect(statMock).not.toHaveBeenCalled()
+  })
 
-    for (const gate of statGates.slice(1)) gate.resolve({ mtimeMs: 102 })
-    const response = await responsePromise
-    expect(response.result).toMatchObject({
-      ok: false,
-      error: { code: 'cancelled' },
-    })
-    expect(searchSessions).not.toHaveBeenCalled()
+  it('serves repeated searches from the cached visible scope within the TTL', async () => {
+    // The expensive part of a search is recomputing the visible session set.
+    // Within the short cache window a second identical request must reuse the
+    // first scope instead of re-listing persistence.
+    const ctx = await baseContext()
+    const live = hit('visible')
+    ctx.sessions.create(live.header.id, { meta: live.header })
+    const cold = Array.from({ length: 8 }, (_, index) => header(`cold-${index}`, `/cold-${index}`))
+    const list = vi.fn(() => Promise.resolve(cold))
+    ctx.provide('sessionPersistence', { list, locate: vi.fn() } as never)
+    const searchSessions = vi.fn(async () => ({ items: [] }))
+    ctx.provide('sessionQuery', { searchSessions } as never)
+
+    const api = createApiProxy(ctx, defaults)
+    const signal = new AbortController().signal
+    await api.sessions.search(request('one'), signal)
+    await api.sessions.search(request('two'), signal)
+
+    expect(list).toHaveBeenCalledTimes(1)
+    expect(searchSessions).toHaveBeenCalledTimes(2)
   })
 
   it('maps missing composition, query cancellation, and provider failure', async () => {

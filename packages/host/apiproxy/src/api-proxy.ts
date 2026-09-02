@@ -1975,6 +1975,31 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return ok(request, namespaceView(descriptor))
   }
 
+  // The search authorization scope, cached briefly. Building it the full
+  // session-summary way (listVisibleSessionSummaries) reads cold-session
+  // artifacts and projections for every search request — several seconds on a
+  // large corpus — while search only needs the visible session id set. Live
+  // ids come from memory; cold ids from the persistence header list (no log
+  // loads). The short window keeps a just-created or just-removed session
+  // reflecting within a couple of seconds, which is fine for a search surface.
+  const SEARCH_SCOPE_TTL_MS = 2000
+  let searchScopeCache: { at: number; ids: Set<SessionId> } | undefined
+  const listVisibleSearchScope = async (signal?: AbortSignal): Promise<Set<SessionId>> => {
+    if (searchScopeCache !== undefined && Date.now() - searchScopeCache.at < SEARCH_SCOPE_TTL_MS) {
+      return searchScopeCache.ids
+    }
+    const ids = new Set<SessionId>()
+    for (const session of ctx.sessions.list()) ids.add(session.id)
+    const persistence = ctx.get('sessionPersistence')
+    if (persistence !== undefined) {
+      const cold = (await persistence.list(signal))
+        .filter(meta => !ids.has(meta.id) && meta.cwd !== undefined)
+      for (const meta of cold) ids.add(meta.id)
+    }
+    searchScopeCache = { at: Date.now(), ids }
+    return ids
+  }
+
   return {
     sessions: {
       // Attached sessions summarize from memory; persisted-but-unattached (cold)
@@ -2001,10 +2026,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           })
         }
         try {
-          const visible = await listVisibleSessionSummaries(signal)
+          const visibleIds = await listVisibleSearchScope(signal)
           if (isAborted(signal)) return cancelled()
-          if (visible.length === 0) return ok(request, { items: [], hasMore: false })
-          const visibleIds = new Set(visible.map(item => item.sessionId))
+          if (visibleIds.size === 0) return ok(request, { items: [], hasMore: false })
           const authorized: SessionSearchItem[] = []
           const acceptedIds = new Set<SessionId>()
           const seenCursors = new Set<SessionSearchCursor>()
