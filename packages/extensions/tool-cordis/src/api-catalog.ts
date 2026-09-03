@@ -2524,38 +2524,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
-    key: 'tui',
-    summary: 'Modal-overlay front door exposed to other plugins as `ctx.tui`.',
-    description: 'Modal-overlay front door exposed to other plugins as `ctx.tui`.',
-    methods: [
-      {
-        signature: 'openOverlay(component: Component, options?: OverlayOptions): OverlayHandle',
-        description: 'Open one fullscreen overlay component; the returned handle controls it.',
-        parameters: [{ name: 'component', description: 'the fullscreen overlay component to open.' }, { name: 'options', description: 'optional overlay presentation options.' }],
-        returns: 'the handle that controls the opened overlay.',
-      },
-    ],
-  },
-  {
-    key: 'tuiPrompt',
-    summary: 'Status-line value registry exposed to other plugins as `ctx.tuiPrompt`.',
-    description: 'Status-line value registry exposed to other plugins as `ctx.tuiPrompt`.',
-    methods: [
-      {
-        signature: 'register(name: string, fragment: string): () => void',
-        description: 'Register one footer fragment by name; the returned disposer removes it.',
-        parameters: [{ name: 'name', description: 'the fragment\'s name.' }, { name: 'fragment', description: 'the status-line fragment text to register.' }],
-        returns: 'a disposer that removes the registered fragment.',
-      },
-      {
-        signature: 'values(): ReadonlyMap<string, string>',
-        description: 'Current registered fragments in insertion order.',
-        parameters: [],
-        returns: 'the registered fragments keyed by name, in insertion order.',
-      },
-    ],
-  },
-  {
     key: 'typert',
     summary: 'Registry of generated schemas, package reflection, invocations, and Remote dependency providers.',
     description: 'Registry of generated schemas, package reflection, invocations, and Remote dependency providers.',

@@ -664,20 +664,6 @@ const SERVICE_ROLES: ServiceRole[] = [
     consumers: ['tool-cordis'],
     note: 'Registers host inspect providers, mirrors the client provider manifest, and routes client queries through the dynamic Cordis transport.',
   },
-  {
-    key: 'tui',
-    pkg: 'tui',
-    title: 'Interactive terminal front door',
-    mode: 'core',
-    note: 'Creates one agent through the public registry and renders the durable session transcript; terminal presentation owns no model request content.',
-  },
-  {
-    key: 'tuiPrompt',
-    pkg: 'tui',
-    title: 'Status-line fragment registry',
-    mode: 'core',
-    note: 'Terminal-side registry of named footer fragments; consumers register and remove their own fragments.',
-  },
 ]
 
 function generatedHeader(title: string): string[] {
