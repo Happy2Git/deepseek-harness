@@ -33,11 +33,28 @@ Run one task, get the final answer, and exit. The task is the command line itsel
 dsh --profile headless "run the tests"
 ```
 
-The agent works through the task, streams each non-empty provider reasoning delta to stderr under a `dsh: reasoning:` heading, then prints the final answer on stdout and exits. Consecutive reasoning deltas stay in one section, and the runner closes that section before later output when the provider supplied no trailing newline. A successful run without reasoning keeps stderr empty; a failure exits 1 and prints `dsh: <code>: <message>` to stderr. A missing or blank task is rejected before anything runs. The task text is supplied through the single `task` setting:
+The agent works through the task, streams each non-empty provider reasoning delta to stderr under a `dsh: reasoning:` heading, then prints the final answer on stdout and exits. Consecutive reasoning deltas stay in one section, and the runner closes that section before later output when the provider supplied no trailing newline. A successful run without reasoning keeps stderr empty; a failure exits 1 and prints `dsh: <code>: <message>` to stderr. A missing or blank task is rejected before anything runs.
+
+Driver flags parameterize the one-shot run:
+
+```sh
+dsh --profile headless --session-id ci-fix --mode read-only --jsonl "run the tests"
+```
+
+- `--session-id <id>` creates-or-resumes that exact persisted session: the runner resumes the stored identity and falls back to creating it with that id only when it is absent; every other resume failure (corruption, unsupported version, missing persistence backend) propagates instead of being downgraded to a create.
+- `--model <model>` overrides the default selection for BOTH the agent options and the installed model selection, so the request waterfall cannot revert it to the default.
+- `--mode <mode>` applies a permission preset — `read-only`, `workspace-write`, `danger-full-access`, or `confirm` (the composed write preset whose approval policy asks).
+- `--jsonl` streams a machine-readable event feed: every owned session event is one NDJSON line on stdout, `approval/request` questions are emitted on stdout and answered from stdin lines of the form `{"type":"approval/response","outcome":"allowed-once","callId":"…"}`, and the run ends with a `done` event carrying the reason and final text.
+
+The task text and driver flags are supplied through the settings:
 
 | Field | Default | Meaning |
 |---|---|---|
 | `task` | required | The task text for the single run |
+| `sessionId` | — | Persisted session id to create-or-resume; a fresh id is minted when absent |
+| `model` | — | Model id overriding the default selection for this run |
+| `mode` | — | Permission mode: `read-only`, `workspace-write`, `danger-full-access`, or `confirm` |
+| `jsonl` | — | Stream NDJSON events and read approvals from stdin |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-headless) is the exhaustive source for every accepted field and its JSDoc.
 
@@ -61,7 +78,7 @@ The runner is a direct driver over the core API carrier: it creates one fresh Ag
 
 ### Run flow
 
-The runner awaits the complete application (`ctx.get('loader')?.await()`) so the composed tools and adapters are not half-mounted, reads the shared [`agentDefaultModel`](../../core/agent-default-model/README.md) selection, creates one fresh persisted Agent with that provider and model, and submits the task as an ordinary user message. It streams that Agent's non-empty reasoning deltas to stderr, waits for quiescence, then flushes the Session and folds the owned interval (`firstSeq` onward) into the last non-empty `assistant/message` text and final `turn/end` reason. It writes the final text to stdout and requests exit.
+The runner awaits the complete application (`ctx.get('loader')?.await()`) so the composed tools and adapters are not half-mounted, reads the shared [`agentDefaultModel`](../../core/agent-default-model/README.md) selection, and creates one fresh persisted Agent with that provider and model — or, when `--session-id` is given, resumes that persisted identity (creating it with that exact id only when it is absent). A `--model` override replaces the default in both the agent options and the installed model selection. A `--mode` preset is applied to the owned session before the task starts. It then submits the task as an ordinary user message, streams that Agent's non-empty reasoning deltas to stderr, waits for quiescence, flushes the Session, and folds the owned interval (`firstSeq` onward) into the last non-empty `assistant/message` text and final `turn/end` reason. It writes the final text to stdout and requests exit.
 
 ### Patch surface over base
 

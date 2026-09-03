@@ -20,6 +20,8 @@ pnpm dsh plugin --profile web add /path/to/dsh-compass
 
 要求、安装选项与截图见 [dsh-compass](https://github.com/Happy2Git/dsh-compass)。
 
+<a id="run"></a>
+
 ## 运行
 
 ### 通过 npm（上游包）
@@ -31,6 +33,8 @@ npx @deepseek-ai/dsh web
 ```
 
 命令默认在 `http://127.0.0.1:3080` 启动 Web 界面，并在本地启动时在默认浏览器中打开。SSH 启动只打印主机 URL，因为 SSH 客户端或编辑器持有本地转发的地址。传 `--no-open` 可在不打开浏览器的情况下运行服务器。参见 [Web 界面指南](docs/user/guide/index.zh.md)。
+
+<a id="run-from-source"></a>
 
 ### 从源码运行
 

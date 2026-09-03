@@ -33,11 +33,28 @@ kind: "package-bundle"
 dsh --profile headless "run the tests"
 ```
 
-agent（智能体）会完成该任务，把提供方的每个非空推理增量流式写入 stderr 的 `dsh: reasoning:` 段，然后把最终答案写入 stdout 并退出。连续推理增量保持在同一段中；提供方未给尾换行时，runner 会在后续输出前结束该段。没有推理内容的成功运行保持 stderr 为空；失败时退出码为 1，并以 `dsh: <code>: <message>` 向 stderr 写入错误。缺失或空白任务会在任何内容运行前被拒绝。任务文本通过唯一的 `task` 设置提供：
+agent（智能体）会完成该任务，把提供方的每个非空推理增量流式写入 stderr 的 `dsh: reasoning:` 段，然后把最终答案写入 stdout 并退出。连续推理增量保持在同一段中；提供方未给尾换行时，runner 会在后续输出前结束该段。没有推理内容的成功运行保持 stderr 为空；失败时退出码为 1，并以 `dsh: <code>: <message>` 向 stderr 写入错误。缺失或空白任务会在任何内容运行前被拒绝。
+
+驱动参数可以参数化单次运行：
+
+```sh
+dsh --profile headless --session-id ci-fix --mode read-only --jsonl "run the tests"
+```
+
+- `--session-id <id>` 创建或续接那个确切的持久会话：runner 续接已存身份，仅当身份不存在时才回退为用该 id 新建；其余续接失败（损坏、版本不支持、缺少持久化后端）都会向上传播，而不会被降级为新建。
+- `--model <model>` 同时覆盖 agent 选项与已安装模型选择中的默认模型，因此请求瀑布无法把它还原为默认值。
+- `--mode <mode>` 应用一个权限预设——`read-only`、`workspace-write`、`danger-full-access` 或 `confirm`（组合出的、审批策略为 ask 的写入预设）。
+- `--jsonl` 流式输出机器可读事件：每个所属会话事件是 stdout 上的一行 NDJSON，`approval/request` 问题被写到 stdout 并从 stdin 行（形如 `{"type":"approval/response","outcome":"allowed-once","callId":"…"}`）读取答案，运行以携带原因与最终文本的 `done` 事件结束。
+
+任务文本与驱动参数通过以下设置提供：
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `task` | 必填 | 单次运行的任务文本 |
+| `sessionId` | — | 创建或续接的持久会话 id；缺省时铸造新 id |
+| `model` | — | 覆盖本次运行默认选择的模型 id |
+| `mode` | — | 权限模式：`read-only`、`workspace-write`、`danger-full-access` 或 `confirm` |
+| `jsonl` | — | 流式输出 NDJSON 事件并从 stdin 读取审批 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-headless)是每个受支持字段及其 JSDoc 的穷尽式真源。
 
@@ -61,7 +78,7 @@ runner 是核心 API 载体之上的直接驱动器：它通过注册表创建�
 
 ### 运行流程
 
-runner 等待整个应用结算（`ctx.get('loader')?.await()`），确保已组合的工具与适配器不会半挂载，读取共享的 [`agentDefaultModel`](../../core/agent-default-model/README.zh.md) 选择，用该 provider 与模型创建一个全新的持久化 Agent（智能体），并把任务作为普通用户消息提交。它把该 Agent 的非空推理增量流式写入 stderr、等待完全停稳，然后 flush Session，并把所属区间（从 `firstSeq` 起）折叠为最后一条非空 `assistant/message` 文本与最终 `turn/end` 原因。最后，它把最终文本写入 stdout 并请求退出。
+runner 等待整个应用结算（`ctx.get('loader')?.await()`），确保已组合的工具与适配器不会半挂载，读取共享的 [`agentDefaultModel`](../../core/agent-default-model/README.zh.md) 选择，用该 provider 与模型创建一个全新的持久化 Agent（智能体）——或者，当给定 `--session-id` 时，续接那个已存身份（仅当身份不存在时才用该确切 id 新建）。`--model` 覆盖会同时替换 agent 选项与已安装模型选择中的默认值。`--mode` 预设会在任务开始前应用到所属会话。随后它把任务作为普通用户消息提交，把该 Agent 的非空推理增量流式写入 stderr、等待完全停稳，然后 flush Session，并把所属区间（从 `firstSeq` 起）折叠为最后一条非空 `assistant/message` 文本与最终 `turn/end` 原因。最后，它把最终文本写入 stdout 并请求退出。
 
 ### 叠加在 base 之上的 patch 表层
 

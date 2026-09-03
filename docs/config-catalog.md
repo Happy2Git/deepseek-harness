@@ -778,10 +778,18 @@ Requires: `agentDefaultModel` · `agents` · `sessions`
 export interface Config {
   /** The prompt text for the single run. */
   task: string
+  /** Persisted session id to create-or-resume; a fresh id is minted when absent. */
+  sessionId?: string
+  /** Model id overriding the default selection for this run. */
+  model?: string
+  /** Permission mode: `read-only`, `workspace-write`, `danger-full-access`, or `confirm`. */
+  mode?: string
+  /** Stream NDJSON session events and read approvals from stdin. */
+  jsonl?: boolean
 }
 ```
 
-Source: [`packages/bundle/headless/src/index.ts:34`](../packages/bundle/headless/src/index.ts)
+Source: [`packages/bundle/headless/src/index.ts:41`](../packages/bundle/headless/src/index.ts)
 
 <a id="deepseek-aidsh-hooks-claude-code"></a>
 
