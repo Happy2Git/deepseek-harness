@@ -4,8 +4,9 @@
 
 .trigger {
   display: inline-flex;
-  align-items: center;
-  gap: 3px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   min-height: 28px;
   padding: 3px 2px;
   border: 0;
@@ -15,6 +16,21 @@
   font-size: 12px;
   line-height: 18px;
   cursor: pointer;
+}
+
+.triggerRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* One dot per job, ten to a row: 10 × 6px dots plus 9 × 3px gaps. */
+.dotStrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  width: 87px;
+  min-width: 0;
 }
 
 .trigger:hover,

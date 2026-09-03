@@ -148,7 +148,8 @@ describe('web e2e: sidebar subagent activity', () => {
     await ownerRow.click()
     const runningTrigger = page.getByRole('button', { name: '1 subagent running' })
     await runningTrigger.waitFor({ timeout: 10_000 })
-    expect(await runningTrigger.locator('[data-state="ongoing"]').count()).toBe(1)
+    // The decorative dot strip duplicates the activity slot's state; scope to the slot.
+    expect(await runningTrigger.locator('svg[data-state="ongoing"]:not([height="6"])').count()).toBe(1)
     await assertFixtureInventory(SNAPSHOT_DIR, ['owner-running.expected.md'])
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])

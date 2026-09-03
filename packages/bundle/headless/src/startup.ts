@@ -1,7 +1,8 @@
 /**
- * The one-shot app's command-line provider: it parses the task positional and
- * `--help`, then publishes {@link HEADLESS_STARTUP_SERVICE}. The runner is an
- * ordinary consumer whose lazy config waits for that service.
+ * The one-shot app's command-line provider: it parses the task positional,
+ * the `--session-id`/`--model` driver flags, and `--help`, then publishes
+ * {@link HEADLESS_STARTUP_SERVICE}. The runner is an ordinary consumer whose
+ * lazy config waits for that service.
  * @module @deepseek-ai/dsh-headless/startup
  */
 
@@ -22,6 +23,14 @@ export const HEADLESS_STARTUP_SERVICE = 'headlessStartup'
 export interface HeadlessStartupValues {
   /** The task text this invocation asked for. */
   task: string
+  /** Persisted session id to create-or-resume, or `undefined` for a fresh id. */
+  sessionId?: string
+  /** Model id overriding the default selection for this run. */
+  model?: string
+  /** Permission mode: `read-only`, `workspace-write`, `danger-full-access`, or `confirm`. */
+  mode?: string
+  /** Stream machine-readable NDJSON events and read approvals from stdin. */
+  jsonl?: boolean
 }
 
 /**
@@ -34,16 +43,23 @@ function headlessCommand(): Command {
     .description('Answer one task, stream reasoning to stderr, print the final assistant message, and exit.')
     .helpOption('-h, --help', 'show this help')
     .argument('[task...]', 'the task text; multiple words are joined by spaces')
+    .option('--session-id <id>', 'create-or-resume the session with this exact id')
+    .option('--model <model>', 'override the model for this run')
+    .option('--mode <mode>', 'permission mode: read-only, workspace-write, danger-full-access, or confirm')
+    .option('--jsonl', 'stream NDJSON events and read approvals from stdin')
     .addHelpText('after', `
 Examples:
-  dsh --profile headless "run the tests"     answer one task and exit
+  dsh --profile headless "run the tests"                 answer one task and exit
+  dsh --profile headless --session-id ci-fix "fix it"    resume ci-fix or create it
+  dsh --profile headless --model deepseek-v4-flash "x"   run once on a chosen model
 `)
 }
 
 /**
- * Parse and provide the one-shot task as an ordinary Cordis service. The
- * command's action publishes the task; a missing or whitespace-only task is a
- * usage error, so on rejection (and on `--help`) nothing is provided.
+ * Parse and provide the one-shot invocation as an ordinary Cordis service. The
+ * command's action publishes the task and driver flags; a missing or
+ * whitespace-only task is a usage error, so on rejection (and on `--help`)
+ * nothing is provided.
  * @param ctx - plugin context carrying the command line.
  */
 export function apply(ctx: Context): void {
@@ -51,7 +67,15 @@ export function apply(ctx: Context): void {
   program.action(() => {
     const task = program.args.join(' ')
     if (task.trim() === '') program.error('error: a task is required, for example: dsh --profile headless "run the tests"')
-    ctx.provide(HEADLESS_STARTUP_SERVICE, { task } satisfies HeadlessStartupValues)
+    const options = program.opts<{ sessionId?: string; model?: string; mode?: string; jsonl?: boolean }>()
+    const values: HeadlessStartupValues = {
+      task,
+      ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
+      ...(options.model === undefined ? {} : { model: options.model }),
+      ...(options.mode === undefined ? {} : { mode: options.mode }),
+      ...(options.jsonl !== true ? {} : { jsonl: true }),
+    }
+    ctx.provide(HEADLESS_STARTUP_SERVICE, values)
   })
   parseCmdline(ctx, program)
 }

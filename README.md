@@ -1,18 +1,24 @@
-# DeepSeek Harness
+# DeepSeek Harness — fork
 
 English | [中文](README.zh.md)
 
-DeepSeek Harness (`dsh`) is an open-source agent harness developed by [DeepSeek AI](https://deepseek.com).
+A fork of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) that tracks upstream master. The right-side context-and-files panel and its git/directory backends, formerly built into this fork, are now published separately as the [dsh-compass](https://github.com/Happy2Git/dsh-compass) plugin.
 
-It is built on an **everything-is-a-plugin** architecture and powered by [Cordis](https://github.com/cordiverse/cordis), whose design is described in [_A Programming Paradigm for Spatiotemporal Composability_](https://arxiv.org/abs/2608.25512).
+## What this fork keeps local
 
-Documentation: [https://deepseek-harness.github.io/deepseek-harness/](https://deepseek-harness.github.io/deepseek-harness/)
+- Headless driver flags on `dsh --profile headless`: `--jsonl` (machine-readable NDJSON events and stdin approvals), `--mode` (permission presets), `--session-id` (create-or-resume a persisted session), and `--model` (override the model for one run).
+- Web extras: status-dot strips under the background-task and subagent counts.
+- CI and issue-management workflows scoped so they only run on the canonical upstream repo.
 
-## Developer preview
+## Install the panel
 
-DeepSeek Harness is in _developer preview_ and iterating rapidly. **THERE WILL BE COMPATIBILITY-BREAKING CHANGES.**
+The context-and-files panel is now an ecosystem plugin. Install it with:
 
-Review the [safety notice](SAFETY.md) before running the project.
+```sh
+pnpm dsh plugin --profile web add /path/to/dsh-compass
+```
+
+See [dsh-compass](https://github.com/Happy2Git/dsh-compass) for requirements, install options, and screenshots.
 
 ## Run
 
@@ -31,7 +37,7 @@ The command starts the Web UI at `http://127.0.0.1:3080` by default and opens it
 To run from a repository checkout:
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
+git clone https://github.com/Happy2Git/deepseek-harness.git
 cd deepseek-harness
 pnpm install
 pnpm run build
@@ -39,6 +45,12 @@ pnpm dsh web
 ```
 
 `pnpm run build` prepares the repository artifacts. `pnpm dsh web` uses those built artifacts without rebuilding.
+
+For one headless run:
+
+```sh
+pnpm dsh --profile headless --jsonl --mode read-only "run the tests"
+```
 
 ## Community and support
 

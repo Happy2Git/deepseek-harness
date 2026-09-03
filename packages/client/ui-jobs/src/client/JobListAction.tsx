@@ -99,6 +99,12 @@ export function JobListAction({ sessionId, useSessions, t }: JobListActionProps)
   const triggerRef = useRef<HTMLButtonElement>(null)
 
   const rows = useMemo(() => ordered(jobs), [jobs])
+  // The strip is a timeline, independent of the list's live-first ordering:
+  // start order puts the newest job's dot last.
+  const stripDots = useMemo(
+    () => [...jobs].sort((left, right) => left.startedAt - right.startedAt || left.id.localeCompare(right.id)),
+    [jobs],
+  )
   const liveCount = useMemo(() => jobs.filter(isLive).length, [jobs])
 
   useDismissOnOutsidePointer(rootRef, open, setOpen)
@@ -148,9 +154,19 @@ export function JobListAction({ sessionId, useSessions, t }: JobListActionProps)
           setOpen(current => !current)
         }}
       >
-        {liveCount > 0 ? <StateDot state="ongoing" className={css.triggerDot} /> : null}
-        <span className={css.count}>{countLabel}</span>
-        <IconChevronDownOutline14 className={open ? css.triggerOpen : undefined} />
+        <span className={css.triggerRow}>
+          {liveCount > 0 ? <StateDot state="ongoing" className={css.triggerDot} /> : null}
+          <span className={css.count}>{countLabel}</span>
+          <IconChevronDownOutline14 className={open ? css.triggerOpen : undefined} />
+        </span>
+        {/* One status dot per job, in start order: the strip reads like a
+            timeline, so the newest task (a fresh subagent, say) is the last
+            dot. Ten dots fill a row; more wrap to the next. Decorative — the
+            accessible name stays the count label, and each status word lives
+            in the list rows. */}
+        <span className={css.dotStrip} aria-hidden="true">
+          {stripDots.map(job => <StateDot key={job.id} state={dotState(job.status)} size={6} />)}
+        </span>
       </button>
       {open
         ? (

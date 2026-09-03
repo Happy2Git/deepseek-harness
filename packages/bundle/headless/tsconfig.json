@@ -30,6 +30,15 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session/session-persistence"
+    },
+    {
+      "path": "../../interaction/permission-presets"
+    },
+    {
+      "path": "../../interaction/user-approval"
+    },
+    {
       "path": "../../boot/cmdline"
     }
   ]
