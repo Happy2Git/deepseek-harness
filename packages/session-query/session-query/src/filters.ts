@@ -88,6 +88,11 @@ export function materializeSessionEventResultFilters(
         assertAllowedValues(filter.kind, values, ['current', 'shadowed', 'log-only'])
         return { kind: filter.kind, values }
       }
+      case 'surface-op': {
+        const values = copyStrings(filter.kind, filter.values)
+        assertAllowedValues(filter.kind, values, ['append', 'replace'])
+        return { kind: filter.kind, values }
+      }
       case 'text':
         if (typeof filter.text !== 'string') throw invalidFilter('text filter text must be a string')
         return { kind: filter.kind, text: filter.text }
@@ -152,6 +157,9 @@ function eventPredicate(filter: SessionEventResultFilter): (document: SessionEve
     case 'surface':
       assertAllowedValues(filter.kind, filter.values, ['current', 'shadowed', 'log-only'])
       return document => filter.values.includes(document.surface)
+    case 'surface-op':
+      assertAllowedValues(filter.kind, filter.values, ['append', 'replace'])
+      return document => document.surfaceOp !== undefined && filter.values.includes(document.surfaceOp)
     case 'text': {
       const pattern = compileSessionTextFilter(filter.text)
       return document => pattern.test(document.text)

@@ -7,6 +7,12 @@ import type { DraftInput } from './draft-editor.ts'
  */
 export interface ViewTab { id: string; label: string }
 
+/** One literal content-search destination in the current Session. */
+export interface ConversationLocateRequest {
+  readonly seq: number
+  readonly query: string
+}
+
 /** One-shot focus request addressed to a Conversation View. */
 export interface ConversationViewRequest {
   /** Target `conversation.view` entry id. */

@@ -6811,11 +6811,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventResultFilter',
-    declaration: 'export type SessionEventResultFilter = ({\n    kind: \'seq\';\n} & SessionResultRange) | ({\n    kind: \'time\';\n} & SessionResultRange) | {\n    kind: \'type\';\n    values: readonly SessionEventType[];\n} | {\n    kind: \'surface\';\n    values: readonly SessionEventSurface[];\n} | {\n    kind: \'text\';\n    text: string;\n};',
+    declaration: 'export type SessionEventResultFilter = ({\n    kind: \'seq\';\n} & SessionResultRange) | ({\n    kind: \'time\';\n} & SessionResultRange) | {\n    kind: \'type\';\n    values: readonly SessionEventType[];\n} | {\n    kind: \'surface\';\n    values: readonly SessionEventSurface[];\n} | {\n    kind: \'surface-op\';\n    values: readonly (\'append\' | \'replace\')[];\n} | {\n    kind: \'text\';\n    text: string;\n};',
   },
   {
     name: 'SessionEventSearchDocument',
-    declaration: 'export interface SessionEventSearchDocument extends SessionEventRecord {\n    text: string;\n}',
+    declaration: 'export interface SessionEventSearchDocument extends SessionEventRecord {\n    surfaceOp?: \'append\' | \'replace\';\n    text: string;\n}',
   },
   {
     name: 'SessionEventSearchHit',
@@ -7119,7 +7119,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionSearchItem',
-    declaration: 'export interface SessionSearchItem {\n    readonly sessionId: SessionId;\n    readonly snippet: string;\n}',
+    declaration: 'export interface SessionSearchItem {\n    readonly sessionId: SessionId;\n    readonly snippet: string;\n    readonly seq: SessionSeq;\n}',
   },
   {
     name: 'SessionSearchPage',

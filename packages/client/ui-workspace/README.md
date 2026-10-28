@@ -47,6 +47,8 @@ Hierarchy uses registered canonical paths only. It does not scan for projects or
 
 ### Search
 
+The Web profile enables literal Chinese and English substring search over original user and assistant messages. A content hit carries its durable message sequence; selecting it opens Chat, loads earlier history when necessary, expands folded content, and highlights the message and matching text. Text highlighting uses the browser Custom Highlight API; older browsers still receive a row outline. Original messages remain searchable after model-context replacement; tool output and synthetic replacement summaries are excluded. Each Session contributes its best message match; refine the query to find another message.
+
 Collapsed search is one header action beside the view and add actions: activating it expands the field across the header. A non-blank query replaces either browsing mode with one flat result list — case-insensitive title and Workspace substring matches appear immediately, while a 250 ms debounced Host request adds ranked current-conversation content matches and snippets. Each new query aborts the preceding request; a failed content search leaves metadata matches visible without an additional warning. The list is capped at 20. Choosing an unarchived result clears and collapses search, opens the Session, and scrolls its row into view in the configured browsing mode; grouped browsing also expands its Workspace and the full Session list when required. Archived results offer Unarchive; attempting to open one explains that restriction without clearing the query or navigating.
 
 ### Managing sessions
@@ -212,7 +214,7 @@ None; this package neither assembles nor sends a provider request.
 
 These limits define the search depth, the archive surface, and the picking carrier; they are current package constraints.
 
-- **No fuzzy content search or event deep links** — the content backend uses literal token/phrase matching, and selecting a result opens the Session rather than the matching event.
+- **No fuzzy content search** — search matches literal text; each Session returns one best message, with at most 20 Session results.
 - **No Session deletion** — sessions can be archived but never deleted; archived rows stay recoverable in place through the archived view filter and the search results' unarchive action, and Workspace registration deletion does not delete Sessions.
 - **Pending user interaction is not aggregated into collapsed groups** — a waiting row inside a collapsed group lights no group-header indicator and becomes visible only after that group is expanded.
 - **Native folder selection depends on the local Host carrier** — under the `-native` composition, in-process or remote browser deployments cannot open a local operating-system dialog; remote-capable picking is the `-browse` composition's in-app flow.

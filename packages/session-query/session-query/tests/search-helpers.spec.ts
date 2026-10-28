@@ -195,6 +195,18 @@ describe('session-query document and filter helpers', () => {
     ])
   })
 
+  it('filters original transcript messages independently of model-context replacements', () => {
+    const documents = buildSessionEventSearchDocuments(id, events)
+    expect(filterSessionEventDocuments(documents, [{ kind: 'surface-op', values: ['append'] }])
+      .map(document => document.seq)).toEqual([0])
+    expect(filterSessionEventDocuments(documents, [{ kind: 'surface-op', values: ['replace'] }])
+      .map(document => document.seq)).toEqual([2])
+    expect(materializeSessionEventResultFilters([{ kind: 'surface-op', values: ['append'] }]))
+      .toEqual([{ kind: 'surface-op', values: ['append'] }])
+    expect(() => materializeSessionEventResultFilters([{ kind: 'surface-op', values: ['bad' as never] }]))
+      .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
+  })
+
   it('applies every session clause with OR values and validates closed values', () => {
     const parent = SessionId('parent')
     const records = [

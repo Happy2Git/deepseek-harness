@@ -38,6 +38,7 @@ import type {
   SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
 import {
+  type FtsTokenizer,
   type JournalMode,
   openSearchDatabase,
 } from './schema.ts'
@@ -53,6 +54,7 @@ import {
   makeSnippet,
   normalizeEventRequest,
   normalizeSessionRequest,
+  escapeLikePattern,
   quoteFtsData,
   requestFingerprint,
   sanitizeFtsText,
@@ -62,6 +64,7 @@ import {
 export {
   SESSION_QUERY_SQLITE_APPLICATION_ID,
   SESSION_QUERY_SQLITE_SCHEMA_VERSION,
+  type FtsTokenizer,
   type JournalMode,
 } from './schema.ts'
 
@@ -116,6 +119,16 @@ export interface Config extends SessionQueryConfig {
   persistedReadConcurrency?: number
   /** Maximum cold prepared-Session observations the inherited reader retains for reuse. Defaults to 5. */
   preparedSessionCacheSize?: number
+  /**
+   * FTS5 tokenizer for the derived tables. `unicode61` (the default) matches
+   * whole whitespace/punctuation-delimited tokens; a CJK sentence without
+   * spaces indexes as one long token, so short Chinese terms inside it do not
+   * match. `trigram` supports substring matching with a larger derived index;
+   * queries under three code points fall back to a full scan with substring
+   * semantics and literal occurrence ranking. Switching the value rebuilds the
+   * derived index from the logs on the next open.
+   */
+  tokenize?: FtsTokenizer
 }
 
 interface ResolvedConfig {
@@ -128,6 +141,7 @@ interface ResolvedConfig {
   readWindowMax: number
   persistedReadConcurrency: number
   preparedSessionCacheSize: number
+  tokenize: FtsTokenizer
 }
 
 interface ObservedSession {
@@ -221,6 +235,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       .min(1)
       .max(Number.MAX_SAFE_INTEGER)
       .default(SESSION_QUERY_DEFAULT_PREPARED_SESSION_CACHE_SIZE),
+    tokenize: z.union(['unicode61', 'trigram'] as const).default('unicode61'),
   })
 
   /** Validated and defaulted backend configuration. */
@@ -358,7 +373,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
   }
 
   private async _open(): Promise<void> {
-    this._db = await openSearchDatabase(this.config.path, this.config.journalMode)
+    this._db = await openSearchDatabase(this.config.path, this.config.journalMode, this.config.tokenize)
     const state = this._db.prepare(
       'SELECT global_generation FROM search_state WHERE singleton = 1',
     ).get() as { global_generation: number }
@@ -596,8 +611,8 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       generation,
     )
     const insert = db.prepare(`
-      INSERT INTO persisted_docs (text, session_id, seq, type, time, surface, codepoint_length)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO persisted_docs (text, session_id, seq, type, time, surface, surface_op, codepoint_length)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
     for (const document of entry.documents) {
       const text = sanitizeFtsText(document.text)
@@ -608,6 +623,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
         document.type,
         document.time,
         document.surface,
+        document.surfaceOp ?? null,
         Array.from(text).length,
       )
     }
@@ -627,8 +643,8 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
       generation,
     )
     const insert = db.prepare(`
-      INSERT INTO temp.live_docs (text, session_id, seq, type, time, surface, codepoint_length)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO temp.live_docs (text, session_id, seq, type, time, surface, surface_op, codepoint_length)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
     for (const document of entry.documents) {
       const text = sanitizeFtsText(document.text)
@@ -639,6 +655,7 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
         document.type,
         document.time,
         document.surface,
+        document.surfaceOp ?? null,
         Array.from(text).length,
       )
     }
@@ -649,13 +666,16 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     offset: number,
     persistenceBinding: PersistenceBinding,
   ): SearchRow[] {
-    const selected = selectedDocumentsSql()
+    const substringScan = usesTrigramSubstringScan(this.config.tokenize, request.query)
+    const selected = substringScan ? selectedDocumentsSubstringSql() : selectedDocumentsSql()
     const sessionWhere = buildSessionWhere(request.sessionFilters)
     const eventWhere = buildEventWhere(request.eventFilters)
     assertFts5OuterPredicateCount(sessionWhere.predicateCount + eventWhere.predicateCount)
     const where = [sessionWhere.sql, eventWhere.sql].filter(Boolean).join(' AND ')
     const bindings = [
-      ...selectedDocumentsParams(request.query, persistenceBinding.service !== undefined),
+      ...(substringScan
+        ? selectedDocumentsSubstringParams(request.query, persistenceBinding.service !== undefined)
+        : selectedDocumentsParams(request.query, persistenceBinding.service !== undefined)),
       ...sessionWhere.params,
       ...eventWhere.params,
       request.limit + 1,
@@ -686,12 +706,15 @@ export class SqliteSessionQueryEngine extends SessionQueryEngine {
     offset: number,
     persistenceBinding: PersistenceBinding,
   ): SearchRow[] {
-    const selected = selectedDocumentsSql()
+    const substringScan = usesTrigramSubstringScan(this.config.tokenize, request.query)
+    const selected = substringScan ? selectedDocumentsSubstringSql() : selectedDocumentsSql()
     const eventWhere = buildEventWhere(request.filters)
     assertFts5OuterPredicateCount(1 + eventWhere.predicateCount)
     const where = ['session_id = ?', eventWhere.sql].filter(Boolean).join(' AND ')
     const bindings = [
-      ...selectedDocumentsParams(request.query, persistenceBinding.service !== undefined),
+      ...(substringScan
+        ? selectedDocumentsSubstringParams(request.query, persistenceBinding.service !== undefined)
+        : selectedDocumentsParams(request.query, persistenceBinding.service !== undefined)),
       request.sessionId,
       ...eventWhere.params,
       request.limit + 1,
@@ -794,6 +817,16 @@ function headerBindings(
   ]
 }
 
+
+/**
+ * Pick the MATCH plan for one query under the configured tokenizer.
+ * FTS5 trigram MATCH needs at least three code points; shorter queries
+ * fall back to the LIKE scan, which keeps substring semantics.
+ */
+function usesTrigramSubstringScan(tokenize: FtsTokenizer, query: string): boolean {
+  return tokenize === 'trigram' && Array.from(query).length < 3
+}
+
 function selectedDocumentsSql(): { sql: string } {
   return {
     sql: `WITH candidates AS (
@@ -812,6 +845,7 @@ function selectedDocumentsSql(): { sql: string } {
         pd.type AS type,
         CAST(pd.time AS INTEGER) AS time,
         pd.surface AS surface,
+        pd.surface_op AS surface_op,
         highlight(persisted_docs, 0, ?, ?) AS marked_text,
         CAST(pd.codepoint_length AS INTEGER) AS document_length
       FROM persisted_docs AS pd
@@ -835,6 +869,7 @@ function selectedDocumentsSql(): { sql: string } {
         ld.type AS type,
         CAST(ld.time AS INTEGER) AS time,
         ld.surface AS surface,
+        ld.surface_op AS surface_op,
         highlight(live_docs, 0, ?, ?) AS marked_text,
         CAST(ld.codepoint_length AS INTEGER) AS document_length
       FROM temp.live_docs AS ld
@@ -865,6 +900,84 @@ function selectedDocumentsParams(query: string, persistenceVisible: boolean): Ar
     expression,
     FTS_HIGHLIGHT_START,
     Buffer.byteLength(FTS_HIGHLIGHT_START, 'utf8'),
+  ]
+}
+
+
+/**
+ * Substring variant of {@link selectedDocumentsSql} for trigram indexes and
+ * queries under three code points, which FTS5 trigram MATCH cannot express.
+ * LIKE keeps the user-visible semantics (any substring); the first hit is
+ * marked by hand because highlight() requires a MATCH query, and
+ * match_count counts real occurrences so ranking stays meaningful.
+ */
+function selectedDocumentsSubstringSql(): { sql: string } {
+  return {
+    sql: `WITH candidates AS (
+      SELECT
+        pd.session_id AS session_id,
+        ps.version AS version,
+        ps.created_at AS created_at,
+        ps.cwd AS cwd,
+        ps.parent_session AS parent_session,
+        ps.seed_length AS seed_length,
+        ps.delegation_depth AS delegation_depth,
+        ps.agent_preset AS agent_preset,
+        0 AS live,
+        1 AS persisted,
+        CAST(pd.seq AS INTEGER) AS seq,
+        pd.type AS type,
+        CAST(pd.time AS INTEGER) AS time,
+        pd.surface AS surface,
+        pd.surface_op AS surface_op,
+        substr(pd.text, 1, instr(lower(pd.text), lower(?)) - 1) || ? || substr(pd.text, instr(lower(pd.text), lower(?)), length(?)) || ? || substr(pd.text, instr(lower(pd.text), lower(?)) + length(?)) AS marked_text,
+        (length(pd.text) - length(replace(lower(pd.text), lower(?), ''))) / ? AS match_count,
+        CAST(pd.codepoint_length AS INTEGER) AS document_length
+      FROM persisted_docs AS pd
+      JOIN persisted_sessions AS ps ON ps.id = pd.session_id
+      WHERE pd.text LIKE ? ESCAPE '\\'
+        AND ? = 1
+        AND NOT EXISTS (SELECT 1 FROM temp.live_sessions AS ls WHERE ls.id = pd.session_id)
+      UNION ALL
+      SELECT
+        ld.session_id AS session_id,
+        ls.version AS version,
+        ls.created_at AS created_at,
+        ls.cwd AS cwd,
+        ls.parent_session AS parent_session,
+        ls.seed_length AS seed_length,
+        ls.delegation_depth AS delegation_depth,
+        ls.agent_preset AS agent_preset,
+        1 AS live,
+        CASE WHEN ? = 1 THEN ls.persisted ELSE 0 END AS persisted,
+        CAST(ld.seq AS INTEGER) AS seq,
+        ld.type AS type,
+        CAST(ld.time AS INTEGER) AS time,
+        ld.surface AS surface,
+        ld.surface_op AS surface_op,
+        substr(ld.text, 1, instr(lower(ld.text), lower(?)) - 1) || ? || substr(ld.text, instr(lower(ld.text), lower(?)), length(?)) || ? || substr(ld.text, instr(lower(ld.text), lower(?)) + length(?)) AS marked_text,
+        (length(ld.text) - length(replace(lower(ld.text), lower(?), ''))) / ? AS match_count,
+        CAST(ld.codepoint_length AS INTEGER) AS document_length
+      FROM temp.live_docs AS ld
+      JOIN temp.live_sessions AS ls ON ls.id = ld.session_id
+      WHERE ld.text LIKE ? ESCAPE '\\'
+    ), matched AS (
+      SELECT * FROM candidates
+    )`,
+  }
+}
+
+/** Parameter order for {@link selectedDocumentsSubstringSql}. */
+function selectedDocumentsSubstringParams(query: string, persistenceVisible: boolean): Array<string | number> {
+  const pattern = `%${escapeLikePattern(query)}%`
+  const codepoints = Array.from(query).length
+  const visible = persistenceVisible ? 1 : 0
+  const marked = [query, FTS_HIGHLIGHT_START, query, query, FTS_HIGHLIGHT_END, query, query]
+  const counted = [query, codepoints]
+  return [
+    ...marked, ...counted, pattern, visible,
+    visible,
+    ...marked, ...counted, pattern,
   ]
 }
 
@@ -1030,10 +1143,12 @@ function resolveConfig(config: Config): ResolvedConfig {
       ?? SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
     preparedSessionCacheSize: config.preparedSessionCacheSize
       ?? SESSION_QUERY_DEFAULT_PREPARED_SESSION_CACHE_SIZE,
+    tokenize: config.tokenize ?? 'unicode61',
   }
   if (typeof resolved.path !== 'string' || resolved.path.trim().length === 0) {
     throw invalidConfig('path must not be blank')
   }
+  if (!['unicode61', 'trigram'].includes(resolved.tokenize)) throw invalidConfig('tokenize is not supported')
   const openPhases: readonly string[] = ['startup', 'first-search', 'never']
   if (!openPhases.includes(resolved.openAt)) throw invalidConfig('openAt is not supported')
   assertPageLimit('defaultLimit', resolved.defaultLimit)

@@ -29,6 +29,8 @@ Run `dsh --profile web` for browser chat, model and settings management, and ses
 <a id="use-this-package"></a>
 ## Use this package
 
+Sidebar content search opens an in-memory SQLite trigram index on first use (`openAt: first-search`, `tokenize: trigram`), allowing Chinese and English substrings without opening SQLite during startup. The index is derived from Session logs; one- and two-character searches scan it and can take longer on large histories.
+
 Start the GUI, open your browser, and start talking to the agent. The flags fine-tune the invocation.
 
 ### Starting the Web GUI

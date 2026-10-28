@@ -77,7 +77,7 @@ describe.skipIf(mode === 'record')('web e2e: workspace shortcuts', () => {
     const console = watchConsole(page)
     await bind('Search sessions')
     await page.keyboard.press('Meta+Shift+Comma')
-    const search = page.getByPlaceholder('Search session names', { exact: true })
+    const search = page.getByPlaceholder('Search names or messages', { exact: true })
     await expect.poll(() => search.evaluate(element => element === document.activeElement)).toBe(true)
     expect(await page.getByRole('button', { name: 'Search sessions', exact: true }).getAttribute('aria-keyshortcuts')).toBe('Shift+Meta+,')
     await page.keyboard.press('Escape')
@@ -314,7 +314,7 @@ it.skipIf(mode === 'record').each([
     await page.keyboard.press('Escape')
     await reference.waitFor({ state: 'hidden' })
     await page.keyboard.press(`${primary}+Alt+K`)
-    const search = page.getByPlaceholder('Search session names', { exact: true })
+    const search = page.getByPlaceholder('Search names or messages', { exact: true })
     await expect.poll(() => search.evaluate(element => element === document.activeElement)).toBe(true)
     const searchAppearance = await search.evaluate((element) => {
       const input = getComputedStyle(element)

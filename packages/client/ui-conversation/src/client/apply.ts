@@ -361,6 +361,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       const openView = (view: string, focus: string): void => {
         if (!viewTabs().some(tab => tab.id === view)) return
         activateView(sessionId, view)
+        concreteConversation(ctx).locateSource(sessionId).set(null)
         actions.openView(view, focus)
       }
       const inspectionTarget = () => uiConversation.views.entries().find(definition =>
@@ -374,6 +375,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       return {
         hooks: {
           conversationViews,
+          locateRequest: concreteConversation(ctx).locateSource(sessionId),
           inspectCall: {
             getSnapshot: () => inspectionTarget() === undefined ? undefined : inspectCall,
             subscribe: (listener) => {
@@ -411,6 +413,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       hooks: { conversationViews },
       open: (id) => { workspaceNavigation.openSession(id) },
       selectView: (view) => {
+        concreteConversation(ctx).locateSource(sessionId).set(null)
         activateView(sessionId, view)
         actions.setView(view)
       },

@@ -293,7 +293,7 @@ async function openSeed(page: Page, fixture: ChatScrollFixture, tailMarker?: str
   // Search collapsed into a header action; expand it before filling.
   const searchButton = page.getByRole('button', { name: 'Search sessions' })
   if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
-  const search = page.getByRole('textbox', { name: 'Search session names', exact: true })
+  const search = page.getByRole('textbox', { name: 'Search names or messages', exact: true })
   // Cold summaries initially show the temporary workspace basename, so the
   // persisted first-prompt marker is the stable user-facing identity. The
   // query itself triggers lazy content-index reconciliation; no transient
@@ -777,7 +777,7 @@ describe('web e2e: long Chat scroll contract', () => {
       }
       const sampleReturn = async (marker: string): Promise<ReturnFrame[]> => {
         await openSeed(page, fixtureB, fixtureB.markers.assistant(fixtureB.turns))
-        await page.getByRole('textbox', { name: 'Search session names', exact: true }).fill(fixtureA.markers.user(1))
+        await page.getByRole('textbox', { name: 'Search names or messages', exact: true }).fill(fixtureA.markers.user(1))
         const result = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
         await expect.poll(() => result.count()).toBe(1)
         // Start before the click; the first visible A frame is part of the assertion, not a setup wait.

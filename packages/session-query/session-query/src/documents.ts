@@ -48,6 +48,7 @@ export function buildSessionEventSearchDocuments(
       type: event.type,
       time: event.time,
       surface: surfaceBySeq.get(event.seq) ?? 'log-only',
+      ...(event.surfaceOp === undefined ? {} : { surfaceOp: event.surfaceOp === 'append' ? 'append' as const : 'replace' as const }),
       text,
     })
   }

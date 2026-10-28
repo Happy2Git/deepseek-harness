@@ -1,0 +1,2 @@
+- text: 请复核预算确认Plan的边界条件。 7/25 {{clock}}
+- button "Copy"

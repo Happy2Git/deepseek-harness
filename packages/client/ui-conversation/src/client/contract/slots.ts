@@ -316,6 +316,8 @@ export interface ConvViewOwnerProps {
   inspectCall: ((callId: string) => void) | undefined
   /** Focus request addressed to the selected View. */
   viewRequest: import('./views.ts').ConversationViewRequest | null
+  /** Literal search destination delivered to Chat. */
+  locateRequest?: import('./views.ts').ConversationLocateRequest | null
   /** Select a View and address one opaque focus identity to it. */
   openView: (view: string, focus: string) => void
   /** Acknowledge the current one-shot focus request. */
@@ -337,6 +339,7 @@ export interface ConversationInjected {
 export interface ConversationSessionInjected {
   /** Package-owned View roster source bound only for the Conversation body. */
   readonly hooks: {
+    readonly locateRequest: ObservableSnapshot<import('./views.ts').ConversationLocateRequest | null>
     readonly conversationViews: ObservableSnapshot<readonly ViewTab[]>
     readonly inspectCall: ObservableSnapshot<ConvViewOwnerProps['inspectCall']>
   }

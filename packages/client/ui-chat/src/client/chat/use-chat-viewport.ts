@@ -315,6 +315,17 @@ export class ChatViewport {
   }
 
   /**
+   * Align one loaded Chat node after any folded ancestors have opened.
+   * @param key - stable node identity.
+   * @param match - optional literal text match within the row.
+   * @returns actual landing, or null until the row is mounted.
+   */
+  scrollToNode(key: string, match?: Range): ViewportLanding | null {
+    const row = this.anchor(key, 'node')
+    return row === null ? null : this.align(row, 24, null, match)
+  }
+
+  /**
    * Align a known loaded turn and return its actual clamped position.
    * A split Node anchor selects its first visible part.
    * @param turn - loaded turn to align below the scrollport's top edge.
@@ -475,11 +486,12 @@ export class ChatViewport {
     return landing
   }
 
-  private align(row: HTMLElement, offset: number, turn: number | null): ViewportLanding | null {
+  private align(row: HTMLElement, offset: number, turn: number | null, match?: Range): ViewportLanding | null {
     const metrics = this.metrics()
     if (metrics === null || this.elements === null) return null
     const top = row.getBoundingClientRect().top - this.elements.scroller.getBoundingClientRect().top
-    return this.write(metrics.top + top - offset, metrics, turn, { key: row.dataset.chatAnchorKey, top })
+    const matchTop = match === undefined ? top : match.getBoundingClientRect().top - this.elements.scroller.getBoundingClientRect().top
+    return this.write(metrics.top + matchTop - offset, metrics, turn, { key: row.dataset.chatAnchorKey, top })
   }
 
   private write(

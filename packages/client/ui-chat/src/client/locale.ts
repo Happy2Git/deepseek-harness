@@ -5,6 +5,9 @@ export const NS = 'chat'
 
 /** Simplified Chinese dictionary and key-set source of truth. */
 export const zh = {
+  'search.loading': '正在加载匹配消息…',
+  'search.failed': '无法加载匹配消息，请重新搜索后再试。',
+  'search.missing': '无法定位匹配消息。请重新搜索，或加载更早的消息后再试。',
   'message.stepProcess.thinking': '正在分析请求',
   'message.stepProcess.read': '正在读取文件',
   'message.stepProcess.readImage': '正在读取图片',
@@ -202,6 +205,9 @@ export type ChatKey = keyof typeof zh
 
 /** English dictionary, checked against the Chinese key set. */
 export const en = {
+  'search.loading': 'Loading the matching message…',
+  'search.failed': 'Could not load the matching message. Search again to retry.',
+  'search.missing': 'Could not locate this message. Search again or load earlier messages.',
   'message.stepProcess.thinking': 'Analyzing the request',
   'message.stepProcess.read': 'Reading files',
   'message.stepProcess.readImage': 'Reading images',

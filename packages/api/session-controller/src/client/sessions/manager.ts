@@ -45,6 +45,8 @@ export type SessionListPhase = 'pending' | 'ready'
 export interface SessionSearchResultItem {
   sessionId: SessionId
   snippet: string
+  /** Durable message sequence for content-search navigation. */
+  seq: SessionSeq
 }
 
 /** Immutable session-list snapshot for useSessionList. */

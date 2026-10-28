@@ -29,6 +29,8 @@ kind: "package-bundle"
 <a id="use-this-package"></a>
 ## 使用本包
 
+侧栏内容搜索在首次使用时打开内存 SQLite trigram 索引（`openAt: first-search`、`tokenize: trigram`），支持中英文子串，启动时不打开 SQLite。索引从 Session 日志派生；一至两个字符的搜索会扫描索引，在大量历史记录上可能较慢。
+
 启动 GUI、打开浏览器，然后开始与 agent（智能体）对话。flag 用于微调本次调用。
 
 ### 启动 Web GUI

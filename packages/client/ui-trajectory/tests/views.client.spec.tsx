@@ -424,6 +424,7 @@ function mount(fixture: Awaited<ReturnType<typeof bench>>) {
         bindDraftPersistence={() => () => {}}
         openView={conversation.actions.openView}
         useInspectCall={selector => selector(undefined)}
+        useLocateRequest={selector => selector(null)}
       />
     </>,
   )

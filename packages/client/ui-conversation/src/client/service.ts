@@ -14,7 +14,7 @@ import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 // error, so scope resolution goes through the sessions service (scopeOf
 // method) instead of the standalone helper.
 import type {
-  ISessions, PendingSubmissionRetirement, SessionFace,
+  ISessions, PendingSubmissionRetirement, SessionFace, SessionBinding,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-file-upload/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -30,6 +30,7 @@ import type { ComposerBlocks } from './contract/composer-blocks.ts'
 import type {
   DraftAttachmentId, DraftAttachmentSerializationResult, SessionInputResolver, SubmitAttachment, SubmitOutcome,
 } from './contract/input.ts'
+import type { ConversationLocateRequest } from './contract/views.ts'
 import type { InputSubmitMode } from './contract/composer-submission.ts'
 
 /**
@@ -68,6 +69,12 @@ export interface IConversation {
    * @returns completion of the page pull.
    */
   loadOlder(): Promise<void>
+  /**
+   * Reveal a message in the scoped Session, including after the Chat view mounts.
+   * @param seq - durable message sequence.
+   * @param query - literal text to highlight in the revealed row.
+   */
+  locate(seq: number, query: string): void
 }
 
 /** Create one browser-only image draft descriptor; only its id enters input state. */
@@ -157,6 +164,7 @@ export class ConversationController extends Service implements IConversation {
   readonly blocks: ComposerBlocks
   /** Live upload state per file-kind draft; images never appear here. */
   readonly fileUploads: SnapshotStore<Record<string, DraftFileUpload>> = createSnapshotStore<Record<string, DraftFileUpload>>({})
+  private readonly locateRequests = new WeakMap<SessionBinding, SnapshotStore<ConversationLocateRequest | null>>()
   private readonly draftAttachments = new Map<DraftAttachmentId, ComposerAttachment>()
   private readonly fileUploadOperations = new Map<DraftAttachmentId, {
     readonly controller: AbortController
@@ -514,6 +522,26 @@ export class ConversationController extends Service implements IConversation {
   /** Pull one older history page for the scoped Session. */
   async loadOlder(): Promise<void> {
     await this.scopedSession('loadOlder').loadOlder()
+  }
+
+  /**
+   * Resolve the shell's private, binding-local navigation source.
+   * @param sessionId - retained Session identity.
+   * @returns stable source; a released binding cannot retain navigation state.
+   */
+  locateSource(sessionId: SessionId): SnapshotStore<ConversationLocateRequest | null> {
+    const binding = this.requireSessions().binding(sessionId)
+    if (binding === undefined) throw new Error(`conversation.locate: session "${sessionId}" resolved no binding`)
+    let source = this.locateRequests.get(binding)
+    if (source === undefined) {
+      source = createSnapshotStore<ConversationLocateRequest | null>(null)
+      this.locateRequests.set(binding, source)
+    }
+    return source
+  }
+
+  locate(seq: number, query: string): void {
+    this.locateSource(this.scopeId('locate')).set({ seq, query })
   }
 
   /** Resolve the caller scope's session face or throw on root contexts. */

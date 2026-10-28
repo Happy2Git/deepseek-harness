@@ -9,8 +9,8 @@
   en: 1ea8c855c9e399bc
   zh: 6c04c65b56aebf8b
 /deepseek-ai-dsh-session-query-sqlite/summary:
-  en: e8970d4d9500f484
-  zh: d96abbbe143b3ca9
+  en: b29d59ea3c6e7fe3
+  zh: a2a4990529a3f142
 /deepseek-ai-dsh-session-query-sqlite/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -24,8 +24,8 @@
   en: 1c9d4d7e60b93c65
   zh: b55bc598768398d3
 /deepseek-ai-dsh-session-query-sqlite/use-this-package/search-behavior:
-  en: 746bd842a7b9c157
-  zh: 2515443f5d3f6656
+  en: af448b26e80a97e7
+  zh: 74e9de69789fea9a
 /deepseek-ai-dsh-session-query-sqlite/use-this-package/when-to-defer-or-disable-search:
   en: 8df2c14374a1f3a6
   zh: e1dd3ff73de187c4
@@ -62,6 +62,6 @@
 /deepseek-ai-dsh-session-query-sqlite/known-limitations-and-deferred-work/dev-note:
   en: d2f0d68fe29fb750
   zh: 323d21ee73a9e3f6
-/deepseek-ai-dsh-session-query-sqlite/known-limitations-and-deferred-work/dev-note/future-alternate-tokenizers-and-search-providers:
-  en: 66b67df07594267a
-  zh: 73b6e1fd6362f168
+/deepseek-ai-dsh-session-query-sqlite/known-limitations-and-deferred-work/dev-note/future-alternate-search-providers:
+  en: 609d00fea82ac8ed
+  zh: b1947112a45f2e07

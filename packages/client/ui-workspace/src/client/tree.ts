@@ -98,6 +98,8 @@ export interface SearchResultNode {
   /** In the registry-global archive set: shown grayed and not openable. */
   archived: boolean
   snippet?: string
+  /** Matched message sequence; absent for title-only results. */
+  seq?: number
 }
 
 /** Bounded merged search projection plus the refine-query hint bit. */
@@ -613,7 +615,7 @@ export function deriveSearchResults(
           : { pendingInteraction }),
         completed: status?.completionUnread === true,
         archived: archived.has(summary.id),
-        ...match === undefined ? {} : { snippet: match.snippet },
+        ...match === undefined ? {} : { snippet: match.snippet, seq: match.seq },
       }
     }),
     hasMore: content.hasMore || ordered.length > limit,

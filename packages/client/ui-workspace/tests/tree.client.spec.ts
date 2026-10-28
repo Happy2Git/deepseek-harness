@@ -1,3 +1,4 @@
+import { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import { describe, expect, it } from 'vitest'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
@@ -596,7 +597,7 @@ describe('deriveSearchResults archive filtering', () => {
       archived('gone'),
       'default',
       noAttention,
-      { items: [{ sessionId: gone.id, snippet: 'needle body' }], hasMore: false },
+      { items: [{ sessionId: gone.id, snippet: 'needle body', seq: SessionSeq(3) }], hasMore: false },
       10,
     )
     expect(result.items.map(item => item.id)).toEqual([hit.id])
@@ -646,10 +647,10 @@ describe('deriveSearchResults', () => {
       } as SessionPendingInteraction)]]),
       {
         items: [
-          { sessionId: contentHit.id, snippet: 'body needle excerpt' },
-          { sessionId: contentHit.id, snippet: 'ignored duplicate excerpt' },
-          { sessionId: titleHit.id, snippet: 'title session body excerpt' },
-          { sessionId: sid('unknown'), snippet: 'not in session.list' },
+          { sessionId: contentHit.id, snippet: 'body needle excerpt', seq: SessionSeq(3) },
+          { sessionId: contentHit.id, snippet: 'ignored duplicate excerpt', seq: SessionSeq(3) },
+          { sessionId: titleHit.id, snippet: 'title session body excerpt', seq: SessionSeq(3) },
+          { sessionId: sid('unknown'), snippet: 'not in session.list', seq: SessionSeq(3) },
         ],
         hasMore: false,
       },
@@ -668,6 +669,7 @@ describe('deriveSearchResults', () => {
           completed: false,
           archived: false,
           snippet: 'title session body excerpt',
+          seq: 3,
         },
         {
           id: workspaceHit.id,
@@ -687,6 +689,7 @@ describe('deriveSearchResults', () => {
           completed: false,
           archived: false,
           snippet: 'body needle excerpt',
+          seq: 3,
         },
       ],
       hasMore: false,
@@ -708,8 +711,8 @@ describe('deriveSearchResults', () => {
       noAttention,
       {
         items: [
-          { sessionId: staleBlank.id, snippet: 'stale body' },
-          { sessionId: currentBlank.id, snippet: 'current body' },
+          { sessionId: staleBlank.id, snippet: 'stale body', seq: SessionSeq(3) },
+          { sessionId: currentBlank.id, snippet: 'current body', seq: SessionSeq(3) },
         ],
         hasMore: false,
       },
@@ -744,7 +747,7 @@ describe('deriveSearchResults', () => {
       noArchive,
       'default',
       noAttention,
-      { items: [{ sessionId: sid('body'), snippet: 'needle' }], hasMore: true },
+      { items: [{ sessionId: sid('body'), snippet: 'needle', seq: SessionSeq(3) }], hasMore: true },
       3,
     )
     expect(backendMore.items).toHaveLength(1)

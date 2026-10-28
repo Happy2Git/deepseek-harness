@@ -104,7 +104,7 @@ describe('session.search', () => {
     await ctx.fiber.dispose()
   })
 
-  it('searches only list-visible ids and current conversation-message events', async () => {
+  it('searches only list-visible ids and original conversation-message events', async () => {
     const ctx = await baseContext()
     const live = ctx.sessions.create(sid('live'), { meta: header('live', '/live') })
     live.append('user/message', createUserMessage({
@@ -159,7 +159,7 @@ describe('session.search', () => {
     expect(response).toEqual({
       ok: true,
       value: {
-        items: [{ sessionId: 'cold', snippet: 'the matching answer' }],
+        items: [{ sessionId: 'cold', snippet: 'the matching answer', seq: SessionSeq(4) }],
         hasMore: false,
       },
     })
@@ -175,7 +175,7 @@ describe('session.search', () => {
           kind: 'type',
           values: ['user/message', 'assistant/message'],
         },
-        { kind: 'surface', values: ['current'] },
+        { kind: 'surface-op', values: ['append'] },
       ],
       limit: 20,
     })
@@ -229,7 +229,6 @@ describe('session.search', () => {
     installSearchQuery(ctx, () => Promise.resolve({
       items: [
         withBestMatch(0, { sessionId: sid('hidden') }),
-        withBestMatch(1, { surface: 'shadowed' }),
         withBestMatch(2, { type: 'tool/result' }),
         withBestMatch(3, { type: 'user/message', snippet: 'allowed snippet' }),
       ],
@@ -243,7 +242,7 @@ describe('session.search', () => {
     expect(response).toEqual({
       ok: true,
       value: {
-        items: [{ sessionId: 'visible', snippet: 'allowed snippet' }],
+        items: [{ sessionId: 'visible', snippet: 'allowed snippet', seq: SessionSeq(3) }],
         hasMore: false,
       },
     })
@@ -420,9 +419,9 @@ describe('session.search', () => {
       ok: true,
       value: {
         items: [
-          { sessionId: 'fresh-first', snippet: 'match 2' },
-          { sessionId: 'shared', snippet: 'match 1' },
-          { sessionId: 'fresh-last', snippet: 'match 3' },
+          { sessionId: 'fresh-first', snippet: 'match 2', seq: SessionSeq(2) },
+          { sessionId: 'shared', snippet: 'match 1', seq: SessionSeq(1) },
+          { sessionId: 'fresh-last', snippet: 'match 3', seq: SessionSeq(3) },
         ],
         hasMore: false,
       },
@@ -656,7 +655,7 @@ describe('session.search', () => {
     expect(response).toEqual({
       ok: true,
       value: {
-        items: [{ sessionId: 'visible', snippet: expected }],
+        items: [{ sessionId: 'visible', snippet: expected, seq: SessionSeq(0) }],
         hasMore: false,
       },
     })
@@ -785,7 +784,7 @@ describe('session.search', () => {
     expect(response).toEqual({
       ok: true,
       value: {
-        items: [{ sessionId: 'cold-32750', snippet: 'match 0' }],
+        items: [{ sessionId: 'cold-32750', snippet: 'match 0', seq: SessionSeq(0) }],
         hasMore: false,
       },
     })

@@ -680,7 +680,7 @@ describe('list lifecycle', () => {
 describe('search', () => {
   it('returns bounded Host results and forwards the caller signal', async ({ mock, remote }) => {
     remote.session.search.mockResolvedValue(ok({
-      items: [{ sessionId: S1, snippet: 'matching excerpt' }],
+      items: [{ sessionId: S1, snippet: 'matching excerpt', seq: SessionSeq(3) }],
       hasMore: true,
     }))
     const manager = makeManager(mock, remote)
@@ -689,7 +689,7 @@ describe('search', () => {
     await expect(manager.search('exact phrase', signal)).resolves.toEqual({
       ok: true,
       value: {
-        items: [{ sessionId: S1, snippet: 'matching excerpt' }],
+        items: [{ sessionId: S1, snippet: 'matching excerpt', seq: SessionSeq(3) }],
         hasMore: true,
       },
     })

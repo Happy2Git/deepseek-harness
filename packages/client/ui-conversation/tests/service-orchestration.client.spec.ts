@@ -54,6 +54,24 @@ async function bench(maxConcurrentFileUploads = 2) {
 }
 
 describe('ConversationController', () => {
+  it('retains the latest search destination before Chat mounts and isolates binding generations', async () => {
+    const b = await bench()
+    try {
+      b.scoped.locate(3, '预算')
+      const source = b.root.locateSource('s1' as SessionId)
+      expect(source.getSnapshot()).toEqual({ seq: 3, query: '预算' })
+      expect(b.root.locateSource('s1' as SessionId)).toBe(source)
+      b.scoped.locate(15, 'Plan')
+      expect(source.getSnapshot()).toEqual({ seq: 15, query: 'Plan' })
+      source.set(null)
+      expect(source.getSnapshot()).toBeNull()
+      b.reference.release()
+      expect(() => b.root.locateSource('s1' as SessionId)).toThrow('no binding')
+    } finally {
+      await b.runtime.dispose()
+    }
+  })
+
   it('does not revive a withdrawn generation when an old input submits before scoped cleanup', async () => {
     const b = await bench()
     try {

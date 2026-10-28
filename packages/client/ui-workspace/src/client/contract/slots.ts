@@ -242,7 +242,7 @@ export type WorkspaceBrowserInjected = {
    */
   startSession: (workspaceId?: WorkspaceId, options?: StartSessionOptions) => void
   /** Open a real Session. */
-  open: (sessionId: SessionId) => void
+  open: (sessionId: SessionId, seq?: number, query?: string) => void
   /**
    * Search current visible conversation messages. The Host fixes the result
    * bound; `hasMore` means the query needs narrowing.

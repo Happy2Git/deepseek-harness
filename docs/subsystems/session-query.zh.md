@@ -133,12 +133,15 @@ type SessionEventResultFilter =
   | ({ kind: 'time' } & SessionResultRange)
   | { kind: 'type'; values: readonly SessionEventType[] }
   | { kind: 'surface'; values: readonly SessionEventSurface[] }
+  | { kind: 'surface-op'; values: readonly ('append' | 'replace')[] }
   | { kind: 'text'; text: string }
 ```
 
 ```ts type-equiv
 /** Searchable semantic document derived from one session event. */
 interface SessionEventSearchDocument extends SessionEventRecord {
+  /** Original surface operation, independent of later model-context replacements. */
+  surfaceOp?: 'append' | 'replace'
   /** First-party semantic text used by scan filters and full-text indexes. */
   text: string
 }

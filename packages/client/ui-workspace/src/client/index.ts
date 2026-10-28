@@ -140,8 +140,9 @@ export function apply(ctx: Context): void {
     subscribe: listener => ctx.on('connection/reset', listener),
   }
   const pickerFlowSource = flowSource('conversation.hero.workspace.directoryFlow')
-  const openSession: WorkspaceBrowserInjected['open'] = (sessionId) => {
+  const openSession: WorkspaceBrowserInjected['open'] = (sessionId, seq, query) => {
     uiWorkspace.openSession(sessionId)
+    if (seq !== undefined) ctx.sessions.scope(sessionId)?.get('conversation')?.locate(seq, query ?? '')
   }
   // Registry-global sets as Sets, rebuilt only when the Workspace snapshot changes.
   const pinnedSet = derive(workspaces.list, snapshot => new Set<SessionId>(snapshot.pinnedSessionIds))

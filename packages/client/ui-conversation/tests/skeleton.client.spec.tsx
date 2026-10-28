@@ -244,6 +244,7 @@ function mount(
           useConversation={useConversation}
           useConversationViews={useConversationViews}
           useInspectCall={selector => selector(undefined)}
+          useLocateRequest={selector => selector(null)}
           useChat={useChat}
           useTrajectory={useTrajectory}
           useSessions={props.useSessions}

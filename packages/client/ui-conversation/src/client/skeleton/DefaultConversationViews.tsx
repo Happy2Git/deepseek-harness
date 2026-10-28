@@ -12,7 +12,7 @@ import css from './ConversationRoot.module.css'
  */
 export function DefaultConversationViews({
   view, useSession, useConversation, useConversationViews, inputActions, useStore, actions,
-  renderSlot, bindDraftPersistence, openView, useInspectCall,
+  renderSlot, bindDraftPersistence, openView, useInspectCall, useLocateRequest,
 }: ConversationSessionSlotProps) {
   const tabs = useConversationViews(value => value)
   const inspectCall = useInspectCall(value => value)
@@ -21,6 +21,7 @@ export function DefaultConversationViews({
   const session = useSession(s => s)
   const conversation = useConversation(s => s)
   const viewRequest = useStore(s => s.viewRequest ?? null)
+  const locateRequest = useLocateRequest(value => value)
 
   useEffect(() => {
     const unbindDraftPersistence = bindDraftPersistence(actions.setDraft)
@@ -30,12 +31,13 @@ export function DefaultConversationViews({
   }, [inputActions])
 
   if (session.blank && conversationPhase(session, conversation) === 'blank') return null
-  const viewId = view ?? active?.id
+  const viewId = locateRequest === null ? view ?? active?.id : 'chat'
   return (
     <div className={css.viewArea}>
       {viewId !== undefined && renderSlot('conversation.view', {
         inspectCall,
         viewRequest,
+        locateRequest,
         openView,
         completeViewRequest: actions.completeViewRequest,
       }, { only: viewId })}

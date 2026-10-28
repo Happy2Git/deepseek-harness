@@ -10,6 +10,8 @@ Desktop analytics follows the [product collection policy](../../client/product-a
 
 ## Summary
 
+`session.search` returns each visible Session’s best original user/assistant message snippet and durable `seq`, so a Client can reveal the matching message without activating an Agent during search.
+
 `@deepseek-ai/dsh-api-session-controller` owns the Host `ctx.sessionController` service and the generated Client `session`, `skills`, and `fileReferences` Remote namespaces. It serves Session lifecycle and history, the Host-generation model catalog, human background-job kill, workspace-path opening, user-invocable skill discovery, and Agent-scoped file references. Use it through API Gateway when a Client needs operations addressed by a Session.
 
 ## Table of Contents

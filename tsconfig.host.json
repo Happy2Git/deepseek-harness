@@ -8,6 +8,7 @@
     "rewriteRelativeImportExtensions": false
   },
   "include": [
+    "apps/web/tests/sidebar-content-search.e2e.ts",
     "apps/web/tests/collapse-timing.e2e.ts",
     "apps/web/tests/chat-flow-layout.e2e.ts",
     "apps/web/product-isolation.ts",

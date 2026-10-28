@@ -1029,7 +1029,7 @@ export function WorkspaceBrowser({
   const wsPlusRef = useRef<HTMLButtonElement>(null)
   const composingRef = useRef(false)
 
-  const openSearchResult = (sessionId: SessionId): void => {
+  const openSearchResult = (sessionId: SessionId, seq?: number): void => {
     if (archivedSessionIds.includes(sessionId)) {
       notifyArchivedNotOpenable()
       return
@@ -1037,7 +1037,8 @@ export function WorkspaceBrowser({
     setRevealSessionId(sessionId)
     setQuery('')
     setSearchExpanded(false)
-    open(sessionId)
+    if (seq === undefined) open(sessionId)
+    else open(sessionId, seq, normalizedQuery)
   }
   const acknowledgeSessionReveal = (sessionId: SessionId): void => {
     setRevealSessionId(current => current === sessionId ? undefined : current)

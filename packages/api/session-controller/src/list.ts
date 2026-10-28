@@ -181,7 +181,7 @@ export class ApiSessionList {
   }
 
   /**
-   * Search current visible message content without activating any matching Session.
+   * Search visible transcript message content without activating any matching Session.
    * @param query - literal message-content query.
    * @param signal - cancellation for list and search reads.
    * @returns authorized bounded Session search results.
@@ -224,7 +224,7 @@ export class ApiSessionList {
             query: normalizedQuery,
             eventFilters: [
               { kind: 'type', values: ['user/message', 'assistant/message'] },
-              { kind: 'surface', values: ['current'] },
+              { kind: 'surface-op', values: ['append'] },
             ],
             limit: requestedLimit,
             ...(requestedCursor === undefined ? {} : { cursor: requestedCursor }),
@@ -257,12 +257,12 @@ export class ApiSessionList {
           if (authorized.length > SESSION_SEARCH_RESULT_LIMIT) continue
           if (!visibleIds.has(hit.header.id)
             || hit.bestMatch.sessionId !== hit.header.id
-            || hit.bestMatch.surface !== 'current'
             || !MESSAGE_TYPES.has(hit.bestMatch.type)
             || acceptedIds.has(hit.header.id)) continue
           acceptedIds.add(hit.header.id)
           authorized.push({
             sessionId: hit.header.id,
+            seq: hit.bestMatch.seq,
             snippet: truncateUnicodeCodePoints(hit.bestMatch.snippet, SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS),
           })
         }

@@ -207,6 +207,9 @@ export function buildEventWhere(filters: readonly SessionEventMetadataFilter[]):
       case 'surface':
         addList(clauses, params, 'surface', filter.values)
         break
+      case 'surface-op':
+        addList(clauses, params, 'surface_op', filter.values)
+        break
       default:
         unknownFilter(filter)
     }
@@ -222,6 +225,16 @@ export function buildEventWhere(filters: readonly SessionEventMetadataFilter[]):
  */
 export function quoteFtsData(query: string): string {
   return `"${query.replaceAll('"', '""')}"`
+}
+
+/**
+ * Escape a query for literal use inside a `LIKE` pattern driven with
+ * `ESCAPE '\\'`: backslash, `%`, and `_` lose their wildcard meaning.
+ * @param query - raw caller query.
+ * @returns pattern matching the query as a literal substring.
+ */
+export function escapeLikePattern(query: string): string {
+  return query.replace(/[\\%_]/g, '\\$&')
 }
 
 /**
@@ -353,6 +366,7 @@ function materializeMetadataFilters(
       case 'time':
       case 'type':
       case 'surface':
+      case 'surface-op':
         break
       case 'text':
         throw new SessionQueryError(

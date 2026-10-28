@@ -297,3 +297,14 @@
 .modalAction {
   min-width: 72px;
 }
+
+:global([data-search-located]) {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+:global(::highlight(dsh-search-match)) {
+  background-color: #ffe082;
+  color: #1b1b1b;
+}

@@ -471,7 +471,7 @@ function SessionHoverContent({ node, now, renderSlot, t }: {
 export function SearchResultItem({ result, currentId, onOpen, onUnarchive, t }: {
   result: SearchResultNode
   currentId: string | undefined
-  onOpen: (id: SearchResultNode['id']) => void
+  onOpen: (id: SearchResultNode['id'], seq?: number) => void
   onUnarchive: (id: SearchResultNode['id']) => void
   t: RowTranslate
 }) {
@@ -484,7 +484,19 @@ export function SearchResultItem({ result, currentId, onOpen, onUnarchive, t }: 
       role="treeitem"
       aria-selected={selected}
       aria-description={result.archived ? t('toast.archivedNotOpenable') : undefined}
-      onClick={() => { onOpen(result.id) }}
+      onClick={() => {
+        if (result.seq === undefined) onOpen(result.id)
+        else onOpen(result.id, result.seq)
+      }}
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          if (result.seq === undefined) onOpen(result.id)
+          else onOpen(result.id, result.seq)
+        }
+      }}
     >
       <span className={css.searchResultHeading}>
         {/* Like session rows, the leading slot owns every row marker; on
